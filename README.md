@@ -2,4 +2,4 @@
 
 This is the Alaska programming language written in C.
 
-To run the binary, do `make run`.
+To run the binary, do `make run input=compiler/tests/test.ak`.
