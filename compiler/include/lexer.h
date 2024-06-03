@@ -43,6 +43,7 @@ typedef enum TokenKind {
     TOKEN_QUESTION,
     TOKEN_DOT,
     TOKEN_COMMA,
+    TOKEN_UNDERSCORE,
     // Keywords
     TOKEN_FN_,
     TOKEN_LET,

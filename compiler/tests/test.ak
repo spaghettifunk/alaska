@@ -1,16 +1,40 @@
 use fmt
 
 fn main() -> int {
-    fmt.Printf("hello %v", 4)
+    fmt.Printf("hello %v", 4.42)
     return 1
 }
 
-/* hello world */
-/* hello multi
-line
-comment             
-     */
-
 fn print() -> string {
     return "hello string"
+}
+
+/* multi
+line
+comment
+*/
+
+fn copyFile(src: string, dst: string) -> Result<(), error> {
+    let stat = os.Stat(src)
+
+    if !stat.Mode().IsRegular() {
+        return Err(fmt.Errorf("%s is not a regular file", src))
+    }
+
+    let source = os.Open(src)
+    defer source.Close()
+
+    let destination_magic = os.Create(dst)
+    defer destination_magic.Close()
+
+    let text = "hello world"
+    let guess = match strconv.Atoi(text) {
+        Ok(n) => n,
+        Err(_) => continue,
+    }
+
+    // ignore number of bytes copied
+    let _ = io.Copy(destination_magic, source)
+
+    Ok(())
 }

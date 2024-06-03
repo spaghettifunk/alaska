@@ -276,6 +276,14 @@ void scan_token(Lexer *l) {
             add_token(l, TOKEN_RANGLE);
             debug_printf("RANGLE\n");
             break;
+        case ':':
+            add_token(l, TOKEN_COLON);
+            debug_printf("COLON\n");
+            break;
+        case '_':
+            add_token(l, TOKEN_UNDERSCORE);
+            debug_printf("UNDERSCORE\n");
+            break;
         case '/':
             if (match(l, '/')) {
                 while (peek(l) != '\n' && !is_eof(l)) {
