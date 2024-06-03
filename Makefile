@@ -1,51 +1,45 @@
-BUILD_DIR := bin
-OBJ_DIR := obj
+# Project Settings
+debug ?= 0
+NAME := alaska
+BUILD_DIR := build
+BIN_DIR := bin
+SRC_DIR := compiler/src
+INCLUDE_DIR := compiler/include
+LIB_DIR := compiler/lib
+TESTS_DIR := compiler/tests
 
-ASSEMBLY := compiler
-EXTENSION := .a
-COMPILER_FLAGS := -g -MD -Wall -Werror -Wvla -Wgnu-folding-constant -Wno-missing-braces -fdeclspec -fPIC
-INCLUDE_FLAGS := -Icompiler/src
-LINKER_FLAGS := -g -shared
+DEFINES := -DDEBUG
 
-DEFINES := -D_DEBUG -DKEXPORT
+# Generate paths for all object files
+OBJS := $(patsubst %.c,%.o, $(wildcard $(SRC_DIR)/*.c) $(wildcard $(LIB_DIR)/**/*.c))
 
-# Make does not offer a recursive wildcard function, so here's one:
-#rwildcard=$(wildcard $1$2) $(foreach d,$(wildcard $1*),$(call rwildcard,$d/,$2))
+# Compiler settings
+CC := clang
+# LINTER := clang-tidy-18
+# FORMATTER := clang-format-18
 
-SRC_FILES := $(shell find $(ASSEMBLY) -type f \( -name "*.c" \))	# .c files
-DIRECTORIES := $(shell find $(ASSEMBLY) -type d)	# directories with .h files
-OBJ_FILES := $(SRC_FILES:%=$(OBJ_DIR)/%.o)
+CFLAGS := -g -MD -Wall -Werror -Wvla -Wgnu-folding-constant -Wno-missing-braces -fdeclspec -fPIC
+LDFLAGS := -lm
 
-all: scaffold compile link
+ifeq ($(debug), 1)
+	CFLAGS := $(CFLAGS) -g -O0 $(DEFINES)
+else
+	CFLAGS := $(CFLAGS) -Oz
+endif
 
-.PHONY: scaffold
-scaffold: # create build directory
-	@echo Scaffolding folder structure...
-	@mkdir -p $(addprefix $(OBJ_DIR)/,$(DIRECTORIES))
-	@echo Done.
+# Targets
 
-.PHONY: link
-link: scaffold $(OBJ_FILES) # link
-	@echo Linking $(ASSEMBLY)...
-	@mkdir -p $(BUILD_DIR)
-	@clang $(OBJ_FILES) -o $(BUILD_DIR)/lib$(ASSEMBLY)$(EXTENSION) $(LINKER_FLAGS)
+# Build executable
+$(NAME): dir $(OBJS)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(BIN_DIR)/$@ $(patsubst %, build/%, $(OBJS))
 
-.PHONY: compile
-compile: #compile .c
-	@echo Compiling...
--include $(OBJ_FILES:.o=.d)
-.PHONY: clean
-clean: # clean build directory
-	rm -Rf $(BUILD_DIR)\lib$(ASSEMBLY)$(EXTENSION)
-	rm -Rf $(OBJ_DIR)\$(ASSEMBLY)
-
-$(OBJ_DIR)/%.c.o: %.c # compile .c to .o object
-	@echo   $<...
-	@clang $< $(COMPILER_FLAGS) -c -o $@ $(DEFINES) $(INCLUDE_FLAGS)
-
--include $(OBJ_FILES:.o=.d)
+# Build object files and third-party libraries
+.PHONY: dir
+$(OBJS): dir
+	@mkdir -p $(BUILD_DIR)/$(@D)
+	@$(CC) $(CFLAGS) -o $(BUILD_DIR)/$@ -c $*.c
 
 .PHONY: run
-run: all # run the program
+run: $(NAME) # run the program
 	@echo Running...
-	@./$(BUILD_DIR)/lib$(ASSEMBLY)$(EXTENSION) $(INPUT_FILE)
+	@./$(BIN_DIR)/$(NAME) $(INPUT_FILE)

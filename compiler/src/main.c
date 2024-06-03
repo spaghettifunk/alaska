@@ -1,26 +1,34 @@
-#include <stdio.h>
-#include <stdlib.h>
+#include "../include/defines.h"
+#include "../include/lexer.h"
+#include "../lib/containers/dynarray.h"
 
-#include "lexer/lexer.h"
-
-char *readFile(char *fileName) {
-    FILE *file = fopen(fileName, "r");
-    char *code;
-    size_t n = 0;
-    int c;
-
+char *readFile(const char *path) {
+    FILE *file = fopen(path, "rb");
     if (file == NULL) {
-        return NULL;  // could not open file
+        fprintf(stderr, "Could not open file \"%s\".\n", path);
+        exit(74);
     }
 
-    code = malloc(1000);
-    while ((c = fgetc(file)) != EOF) {
-        code[n++] = (char)c;
-    }
-    // don't forget to terminate with the null character
-    code[n] = '\0';
+    fseek(file, 0L, SEEK_END);
+    size_t fileSize = ftell(file);
+    rewind(file);
 
-    return code;
+    char *buffer = (char *)malloc(fileSize + 1);
+    if (buffer == NULL) {
+        fprintf(stderr, "Not enough memory to read \"%s\".\n", path);
+        exit(74);
+    }
+
+    size_t bytesRead = fread(buffer, sizeof(char), fileSize, file);
+    if (bytesRead < fileSize) {
+        fprintf(stderr, "Could not read file \"%s\".\n", path);
+        exit(74);
+    }
+
+    buffer[bytesRead] = '\0';
+
+    fclose(file);
+    return buffer;
 }
 
 int main(int argc, char **argv) {
@@ -33,15 +41,10 @@ int main(int argc, char **argv) {
     char *code = readFile(fileName);
     if (code == NULL) {
         printf("Could not open file\n");
-        return 1;
+        return 64;
     }
 
     Lexer *l = new_lexer(code);
-    l->input = code;
-
-    Token *tokens = get_tokens(l);
-    while (tokens->kind != TOKEN_EOF) {
-        printf("Token: %s\n", tokens->literal);
-        tokens++;
-    }
+    scan_tokens(l);
+    return 0;
 }
