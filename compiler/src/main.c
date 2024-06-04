@@ -1,5 +1,6 @@
+#include "../include/ast.h"
 #include "../include/defines.h"
-#include "../include/lexer.h"
+#include "../include/parser.h"
 #include "../lib/containers/dynarray.h"
 
 char *readFile(const char *path) {
@@ -46,5 +47,11 @@ int main(int argc, char **argv) {
 
     Lexer *l = new_lexer(code);
     scan_tokens(l);
+
+    Parser *p = new_parser(l);
+    p->current_token = &l->tokens[0];
+    // ASTNode *ast = parse_production(p);
+    // ast_print(ast);
+
     return 0;
 }
