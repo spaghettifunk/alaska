@@ -1,6 +1,9 @@
 // AST implementation of the Alaska grammar for the compiler
+#pragma once
 #include <stdio.h>
 #include <stdlib.h>
+
+#include "../lib/containers/list.h"
 
 // Enumeration for different node types
 typedef enum NodeType {
@@ -14,7 +17,6 @@ typedef enum NodeType {
     NODE_REPETITION,
     NODE_IDENTIFIER,
     NODE_TOKEN,
-    // Add more types as necessary
     NODE_STATEMENT,
     NODE_DECLARATION,
     NODE_LITERAL,
@@ -29,7 +31,6 @@ typedef enum NodeType {
     NODE_FUNCTION_DECL,
     NODE_PACKAGE_CLAUSE,
     NODE_USE_DECL,
-    // next chunk
     NODE_PRIMARY_EXPR,
     NODE_UNARY_EXPR,
     NODE_BINARY_EXPR,
@@ -42,7 +43,6 @@ typedef enum NodeType {
     NODE_ARGUMENTS,
     NODE_CONVERSION,
     NODE_RECEIVER_TYPE,
-    // Add more types as necessary
     NODE_TYPE_NAME,
     NODE_TYPE_ARGS,
     NODE_TYPE_LIST,
@@ -64,7 +64,6 @@ typedef struct ASTFactor ASTFactor;
 typedef struct ASTGroup ASTGroup;
 typedef struct ASTOption ASTOption;
 typedef struct ASTRepetition ASTRepetition;
-
 typedef struct ASTStatement ASTStatement;
 typedef struct ASTDeclaration ASTDeclaration;
 typedef struct ASTLiteral ASTLiteral;
@@ -79,7 +78,6 @@ typedef struct ASTFunctionDecl ASTFunctionDecl;
 typedef struct ASTPackageClause ASTPackageClause;
 typedef struct ASTUseDecl ASTUseDecl;
 typedef struct ASTParameter ASTParameter;
-
 typedef struct ASTPrimaryExpr ASTPrimaryExpr;
 typedef struct ASTUnaryExpr ASTUnaryExpr;
 typedef struct ASTBinaryExpr ASTBinaryExpr;
@@ -92,8 +90,6 @@ typedef struct ASTSlice ASTSlice;
 typedef struct ASTArguments ASTArguments;
 typedef struct ASTConversion ASTConversion;
 typedef struct ASTReceiverType ASTReceiverType;
-
-// Forward declarations of additional AST type nodes
 typedef struct ASTTypeName ASTTypeName;
 typedef struct ASTTypeArgs ASTTypeArgs;
 typedef struct ASTTypeList ASTTypeList;
@@ -106,8 +102,6 @@ typedef struct ASTSliceType ASTSliceType;
 typedef struct ASTMapType ASTMapType;
 typedef struct ASTMethod ASTMethod;
 typedef struct ASTFieldDecl ASTFieldDecl;
-
-// next chunk
 typedef struct ASTConstDecl ASTConstDecl;
 typedef struct ASTIdentifierList ASTIdentifierList;
 typedef struct ASTExpressionList ASTExpressionList;
@@ -115,10 +109,10 @@ typedef struct ASTTypeSpec ASTTypeSpec;
 typedef struct ASTMethodDecl ASTMethodDecl;
 
 // Structure for syntax node
-typedef struct ASTSyntax {
-    ASTNode **productions;  // Array of productions
-    size_t production_count;
-} ASTSyntax;
+typedef struct AST {
+    list_t *productions;  // Array of productions
+    enum NodeType type;
+} AST;
 
 // Structure for production node
 typedef struct ASTProduction {
@@ -439,11 +433,42 @@ typedef struct ASTPackageClause {
     char *package_name;
 } ASTPackageClause;
 
+typedef struct ASTExpression {
+    ASTTerm **terms;  // Array of terms
+    size_t term_count;
+    NodeType type;
+    union {
+        ASTPrimaryExpr *primary_expr;
+        ASTUnaryExpr *unary_expr;
+        ASTBinaryExpr *binary_expr;
+        ASTFunctionLit *function_lit;
+        ASTTypeAssertion *type_assertion;
+        ASTSelector *selector;
+        ASTIndex *index;
+        ASTSlice *slice;
+        ASTArguments *arguments;
+        ASTConversion *conversion;
+    };
+} ASTExpression;
+
+// Structure for top-level declaration node
+typedef struct ASTTopLevelDecl {
+    NodeType type;
+    union {
+        ASTConstDecl *const_decl;
+        ASTTypeDecl *type_decl;
+        ASTLetDecl *let_decl;
+        ASTFunctionDecl *function_decl;
+        ASTMethodDecl *method_decl;
+    };
+} ASTTopLevelDecl;
+
 // Main AST node structure for extended nodes
 typedef struct ASTNode {
     NodeType ext_type;
     union {
-        ASTSyntax *syntax;
+        ASTTopLevelDecl *top_level_decl;
+        AST *syntax;
         ASTProduction *production;
         ASTExpression *expression;
         ASTTerm *term;
@@ -467,33 +492,61 @@ typedef struct ASTNode {
     };
 } ASTNode;
 
-typedef struct ASTExpression {
-    ASTTerm **terms;  // Array of terms
-    size_t term_count;
-    NodeType type;
-    union {
-        ASTPrimaryExpr *primary_expr;
-        ASTUnaryExpr *unary_expr;
-        ASTBinaryExpr *binary_expr;
-        ASTFunctionLit *function_lit;
-        ASTTypeAssertion *type_assertion;
-        ASTSelector *selector;
-        ASTIndex *index;
-        ASTSlice *slice;
-        ASTArguments *arguments;
-        ASTConversion *conversion;
-    };
-} ASTExpression;
+AST *new_ast(enum NodeType type);
+ASTNode *create_production_node(char *name, ASTExpression *expression);
+ASTNode *create_expression_node(ASTTerm **terms, size_t term_count);
+ASTNode *create_term_node(ASTFactor **factors, size_t factor_count);
+ASTNode *create_factor_node(NodeType type, void *data);
+ASTNode *create_group_node(ASTExpression *expression);
+ASTNode *create_option_node(ASTExpression *expression);
+ASTNode *create_repetition_node(ASTExpression *expression);
 
-// Structure for top-level declaration node
-struct ASTTopLevelDecl {
-    NodeType type;
-    union {
-        ASTConstDecl *const_decl;
-        ASTTypeDecl *type_decl;
-        ASTLetDecl *let_decl;
-        ASTFunctionDecl *function_decl;
-        ASTMethodDecl *method_decl;
-        // Add more as necessary
-    };
-};
+// ASTNode *create_statement_node(NodeType type, void *data);
+// ASTNode *create_declaration_node(NodeType type, void *data);
+// ASTNode *create_literal_node(NodeType type, void *data);
+// ASTNode *create_block_node(ASTStatement **statements, size_t statement_count);
+// ASTNode *create_if_stmt_node(ASTExpression *condition, ASTBlock *then_block, ASTBlock *else_block);
+// ASTNode *create_for_stmt_node(ASTExpression *condition, ASTBlock *body);
+// ASTNode *create_return_stmt_node(ASTExpression **expressions, size_t expression_count);
+// ASTNode *create_expression_stmt_node(ASTExpression *expression);
+// ASTNode *create_assignment_node(ASTExpression **lhs, size_t lhs_count, ASTExpression **rhs, size_t rhs_count, char *assign_op);
+// ASTNode *create_type_node(char *type_name);
+// ASTNode *create_function_decl_node(char *name, ASTType *return_type, ASTParameter **parameters, size_t parameter_count, ASTBlock *body);
+// ASTNode *create_package_clause_node(char *package_name);
+// ASTNode *create_use_decl_node(char *path);
+
+// ASTNode *create_primary_expr_node(NodeType type, void *data);
+// ASTNode *create_unary_expr_node(char unary_op, ASTExpression *operand);
+// ASTNode *create_binary_expr_node(ASTExpression *left, char *binary_op, ASTExpression *right);
+// ASTNode *create_function_lit_node(ASTFunctionDecl *function_decl);
+// ASTNode *create_parameter_node(char *name, ASTType *type);
+// ASTNode *create_parameter_list_node(ASTParameter **parameters, size_t parameter_count);
+// ASTNode *create_type_assertion_node(ASTExpression *expression, ASTType *type);
+// ASTNode *create_selector_node(ASTExpression *operand, char *field);
+// ASTNode *create_index_node(ASTExpression *operand, ASTExpression *index);
+// ASTNode *create_slice_node(ASTExpression *operand, ASTExpression *low, ASTExpression *high, ASTExpression *max);
+// ASTNode *create_arguments_node(ASTExpression **arguments, size_t argument_count);
+// ASTNode *create_conversion_node(ASTType *type, ASTExpression *expression);
+// ASTNode *create_receiver_type_node(ASTType *type);
+
+// ASTNode *create_type_name_node(char *identifier);
+// ASTNode *create_type_args_node(ASTTypeList *type_list);
+// ASTNode *create_type_list_node(ASTType **types, size_t type_count);
+// ASTNode *create_array_type_node(ASTExpression *length, ASTType *element_type);
+// ASTNode *create_struct_type_node(ASTFieldDecl **fields, size_t field_count);
+// ASTNode *create_pointer_type_node(ASTType *base_type);
+// ASTNode *create_function_type_node(ASTParameterList *parameters, ASTType *return_type);
+// ASTNode *create_interface_type_node(ASTMethod **methods, size_t method_count);
+// ASTNode *create_slice_type_node(ASTType *element_type);
+// ASTNode *create_map_type_node(ASTType *key_type, ASTType *element_type);
+
+// ASTNode *create_defer_stmt_node(ASTExpression *expression);
+// ASTNode *create_labeled_stmt_node(char *label, ASTStatement *statement);
+// ASTNode *create_simple_stmt_node(NodeType type, void *data);
+// ASTNode *create_const_decl_node(ASTIdentifierList *identifiers, ASTType *type, ASTExpressionList *expression_list);
+// ASTNode *create_type_decl_node(ASTTypeSpec **type_specs, size_t type_spec_count);
+// ASTNode *create_let_decl_node(ASTIdentifierList *identifiers, ASTType *type, ASTExpressionList *expression_list);
+// ASTNode *create_top_level_decl_node(NodeType type, void *data);
+
+// ASTNode *create_package_clause_node(char *package_name);
+// ASTNode *create_use_decl_node(char *path);

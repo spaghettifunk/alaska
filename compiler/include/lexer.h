@@ -1,3 +1,4 @@
+#include "../lib/containers/list.h"
 #include "defines.h"
 
 typedef enum TokenKind {
@@ -68,7 +69,6 @@ typedef enum TokenKind {
     TOKEN_BREAK,
     TOKEN_CONTINUE,
     TOKEN_SELECT,
-    TOKEN_SUPPORT,  // @ENSURE, @RAWGO
     TOKEN_ERROR,
     TOKEN_NULL,
     TOKEN_EOF,
@@ -80,12 +80,13 @@ typedef struct
     enum TokenKind kind;
     void *literal;
     int line;
+    char *string;  // this is only for debugging purposes
 } Token;
 
 typedef struct
 {
     char *source;
-    Token *tokens;
+    list_t *tokens;
     int start;
     int current;
     int line;
@@ -93,4 +94,9 @@ typedef struct
 
 Lexer *new_lexer(char *source);
 void free_lexer(Lexer *l);
+Token *next_token(Lexer *l);
+char *token_to_string(Token *token);
+char *token_kind_to_string(enum TokenKind kind);
+
+// debugging purposes
 void scan_tokens(Lexer *l);

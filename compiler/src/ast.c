@@ -2,44 +2,13 @@
 
 #include "../include/defines.h"
 
-ASTNode *create_syntax_node(ASTNode **productions, size_t production_count) {
-    // allocate memory for the syntax node
-    ASTSyntax *syntax_node = (ASTSyntax *)malloc(sizeof(ASTSyntax));
-    if (syntax_node == NULL) {
-        fprintf(stderr, "Not enough memory to create syntax node.\n");
-        exit(74);
+AST *new_ast(enum NodeType type) {
+    AST *ast = (AST *)malloc(sizeof(AST));
+    ast->type = type;
+    if (type == NODE_SYNTAX) {
+        ast->productions = list_new();
     }
-
-    // allocate memory for the productions array
-    syntax_node->productions = (ASTNode **)malloc(production_count * sizeof(ASTNode *));
-    if (syntax_node->productions == NULL) {
-        fprintf(stderr, "Not enough memory to create productions array.\n");
-        free(syntax_node);
-        exit(74);
-    }
-
-    // copy the productions into the productions array
-    for (size_t i = 0; i < production_count; i++) {
-        syntax_node->productions[i] = productions[i];
-    }
-
-    syntax_node->production_count = production_count;
-
-    // allocate memory for the ASTNode wrapper
-    ASTNode *node = (ASTNode *)malloc(sizeof(ASTNode));
-    if (node == NULL) {
-        fprintf(stderr, "Not enough memory to create ASTNode.\n");
-        free(syntax_node->productions);
-        free(syntax_node);
-        exit(74);
-    }
-
-    // initialize the ASTNode wrapper
-    node->type = (struct ASTType *)malloc(sizeof(struct ASTType *));
-    node->type->type = NODE_SYNTAX;
-    node->syntax = syntax_node;
-
-    return node;
+    return ast;
 }
 
 ASTNode *create_production_node(char *name, ASTExpression *expression) {
@@ -119,8 +88,3 @@ ASTNode *create_repetition_node(ASTExpression *expression) {
 
 // ASTNode *create_package_clause_node(char *package_name);
 // ASTNode *create_use_decl_node(char *path);
-
-void ast_print(ASTNode *ast) {
-    // Implement printing of the AST
-    printf("AST\n");
-}

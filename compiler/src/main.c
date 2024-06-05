@@ -1,7 +1,7 @@
 #include "../include/ast.h"
 #include "../include/defines.h"
 #include "../include/parser.h"
-#include "../lib/containers/dynarray.h"
+#include "../lib/containers/list.h"
 
 char *readFile(const char *path) {
     FILE *file = fopen(path, "rb");
@@ -46,12 +46,23 @@ int main(int argc, char **argv) {
     }
 
     Lexer *l = new_lexer(code);
+    // Parser *p = new_parser(l);
+    // AST *root = parser_parse(p);
+    // printf("\n%p", root);
+
+    // Token *tok = 0;
+    // while ((tok = next_token(l))->kind != TOKEN_EOF) {
+    //     printf("Token: %s\n", token_kind_to_string(tok->kind));
+    // }
+
     scan_tokens(l);
 
-    Parser *p = new_parser(l);
-    p->current_token = &l->tokens[0];
-    // ASTNode *ast = parse_production(p);
-    // ast_print(ast);
+    list_node_t *node;
+    list_iterator_t *it = list_iterator_new(l->tokens, LIST_HEAD);
+    while ((node = list_iterator_next(it))) {
+        Token *tok = (Token *)node->val;
+        puts(tok->string);
+    }
 
     return 0;
 }

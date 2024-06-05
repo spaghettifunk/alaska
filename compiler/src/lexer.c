@@ -1,8 +1,8 @@
 #include "../include/lexer.h"
 
 #include "../include/defines.h"
-#include "../lib/containers/dynarray.h"
 #include "../lib/containers/hashmap.h"
+#include "../lib/containers/list.h"
 
 typedef struct Keyword {
     char *literal;
@@ -22,18 +22,34 @@ uint64_t keyword_hash(const void *item, uint64_t seed0, uint64_t seed1) {
     return hashmap_sip(keyword->literal, strlen(keyword->literal), seed0, seed1);
 }
 
-Token *new_token(enum TokenKind kind, char *lexeme, void *literal, int line) {
+Token *new_token(enum TokenKind kind, char *lexeme, void *literal, int line, char *string) {
     Token *t = (Token *)malloc(sizeof(Token));
     t->kind = kind;
-    t->lexeme = lexeme;
-    t->literal = literal;
     t->line = line;
+    t->lexeme = NULL;
+    t->literal = NULL;
+    t->string = NULL;
+
+    if (lexeme != NULL) {
+        t->lexeme = malloc(strlen(lexeme) + 1);
+        strcpy(t->lexeme, lexeme);
+    }
+
+    if (literal != NULL) {
+        t->literal = malloc(strlen(literal) + 1);
+        strcpy(t->literal, literal);
+    }
+
+    if (string != NULL) {
+        t->string = malloc(strlen(string) + 1);
+        strcpy(t->string, string);
+    }
     return t;
 }
 
 Lexer *new_lexer(char *input) {
     Lexer *l = (Lexer *)malloc(sizeof(Lexer));
-    l->tokens = dynarray_create(Token);
+    l->tokens = list_new();
     l->source = input;
     l->start = 0;
     l->current = 0;
@@ -64,7 +80,6 @@ Lexer *new_lexer(char *input) {
     hashmap_set(map, &(struct Keyword){.literal = "break", .kind = TOKEN_BREAK});
     hashmap_set(map, &(struct Keyword){.literal = "continue", .kind = TOKEN_CONTINUE});
     hashmap_set(map, &(struct Keyword){.literal = "select", .kind = TOKEN_SELECT});
-    hashmap_set(map, &(struct Keyword){.literal = "support", .kind = TOKEN_SUPPORT});
 
     return l;
 }
@@ -84,22 +99,24 @@ char advance(Lexer *l) {
     return l->source[l->current++];
 }
 
-void add_token(Lexer *l, enum TokenKind kind) {
+void add_token(Lexer *l, enum TokenKind kind, char *string) {
     char *lexeme = (char *)malloc(l->current - l->start + 1);
     memcpy(lexeme, &l->source[l->start], l->current - l->start);
     // Null-terminate the string
     lexeme[l->current - l->start] = '\0';
-    Token *token = new_token(kind, lexeme, NULL, l->line);
-    dynarray_push(l->tokens, token);
+    Token *token = new_token(kind, lexeme, NULL, l->line, string);
+
+    list_rpush(l->tokens, list_node_new(token));
 }
 
-void add_token_literal(Lexer *l, enum TokenKind kind, void *literal) {
+void add_token_literal(Lexer *l, enum TokenKind kind, char *string, void *literal) {
     char *lexeme = (char *)malloc(l->current - l->start + 1);
     memcpy(lexeme, &l->source[l->start], l->current - l->start);
     // Null-terminate the string
     lexeme[l->current - l->start] = '\0';
-    Token *token = new_token(kind, lexeme, literal, l->line);
-    dynarray_push(l->tokens, token);
+    Token *token = new_token(kind, lexeme, literal, l->line, string);
+
+    list_rpush(l->tokens, list_node_new(token));
 }
 
 boolean is_alpha(char c) {
@@ -147,8 +164,7 @@ void string(Lexer *l) {
         advance(l);
     }
     if (is_eof(l)) {
-        add_token(l, TOKEN_ERROR);
-        debug_printf("ERROR\n");
+        add_token(l, TOKEN_ERROR, "TOKEN_ERROR");
         return;
     }
     // closing the string
@@ -159,8 +175,7 @@ void string(Lexer *l) {
     memcpy(value, &l->source[l->start + 1], l->current - l->start - 2);
     value[l->current - l->start - 2] = '\0';
 
-    add_token_literal(l, TOKEN_STRING, value);
-    debug_printf("STRING\n");
+    add_token_literal(l, TOKEN_STRING, "TOKEN_STRING", value);
 }
 
 void number(Lexer *l) {
@@ -181,10 +196,10 @@ void number(Lexer *l) {
     value[l->current - l->start] = '\0';
 
     if (is_float) {
-        add_token_literal(l, TOKEN_FLOAT, value);
+        add_token_literal(l, TOKEN_FLOAT, "TOKEN_FLOAT", value);
         return;
     }
-    add_token_literal(l, TOKEN_INT, value);
+    add_token_literal(l, TOKEN_INT, "TOKEN_INT", value);
 }
 
 void identifier(Lexer *l) {
@@ -198,10 +213,10 @@ void identifier(Lexer *l) {
 
     const struct Keyword *keyword = hashmap_get(map, &(struct Keyword){.literal = value});
     if (keyword != NULL) {
-        add_token(l, keyword->kind);
+        add_token(l, keyword->kind, "TOKEN_KEYWORD");
         return;
     }
-    add_token(l, TOKEN_IDENTIFIER);
+    add_token(l, TOKEN_IDENTIFIER, "TOKEN_IDENTIFIER");
 }
 
 void scan_token(Lexer *l) {
@@ -209,87 +224,67 @@ void scan_token(Lexer *l) {
     l->current++;
     switch (c) {
         case '(':
-            add_token(l, TOKEN_LPAREN);
-            debug_printf("LPAREN\n");
+            add_token(l, TOKEN_LPAREN, "TOKEN_LPAREN");
             break;
         case ')':
-            add_token(l, TOKEN_RPAREN);
-            debug_printf("RPAREN\n");
+            add_token(l, TOKEN_RPAREN, "TOKEN_RPAREN");
             break;
         case '{':
-            add_token(l, TOKEN_LBRACE);
-            debug_printf("LBRACE\n");
+            add_token(l, TOKEN_LBRACE, "TOKEN_LBRACE");
             break;
         case '}':
-            add_token(l, TOKEN_RBRACE);
-            debug_printf("RBRACE\n");
+            add_token(l, TOKEN_RBRACE, "TOKEN_RBRACE");
             break;
         case '[':
-            add_token(l, TOKEN_LBRACKET);
-            debug_printf("LBRACKET\n");
+            add_token(l, TOKEN_LBRACKET, "TOKEN_LBRACKET");
             break;
         case ']':
-            add_token(l, TOKEN_RBRACKET);
-            debug_printf("RBRACKET\n");
+            add_token(l, TOKEN_RBRACKET, "TOKEN_RBRACKET");
             break;
         case ',':
-            add_token(l, TOKEN_COMMA);
-            debug_printf("COMMA\n");
+            add_token(l, TOKEN_COMMA, "TOKEN_COMMA");
             break;
         case '.':
-            add_token(l, TOKEN_DOT);
-            debug_printf("DOT\n");
+            add_token(l, TOKEN_DOT, "TOKEN_DOT");
             break;
         case '-':
-            add_token(l, TOKEN_MINUS);
-            debug_printf("MINUS\n");
+            add_token(l, TOKEN_MINUS, "TOKEN_MINUS");
             break;
         case '+':
-            add_token(l, TOKEN_PLUS);
-            debug_printf("PLUS\n");
+            add_token(l, TOKEN_PLUS, "TOKEN_PLUS");
             break;
         case ';':
-            add_token(l, TOKEN_SEMICOLON);
-            debug_printf("SEMICOLON\n");
+            add_token(l, TOKEN_SEMICOLON, "TOKEN_SEMICOLON");
             break;
         case '*':
-            add_token(l, TOKEN_STAR);
-            debug_printf("STAR\n");
+            add_token(l, TOKEN_STAR, "TOKEN_STAR");
             break;
         case '%':
-            add_token(l, TOKEN_PERCENT);
-            debug_printf("PERCENT\n");
+            add_token(l, TOKEN_PERCENT, "TOKEN_PERCENT");
             break;
         case '!':
-            add_token(l, TOKEN_BANG);
-            debug_printf("BANG\n");
+            add_token(l, TOKEN_BANG, "TOKEN_BANG");
             break;
         case '=':
-            add_token(l, TOKEN_EQ);
-            debug_printf("EQ\n");
+            add_token(l, TOKEN_EQ, "TOKEN_EQ");
             break;
         case '<':
-            add_token(l, TOKEN_LANGLE);
-            debug_printf("LANGLE\n");
+            add_token(l, TOKEN_LANGLE, "TOKEN_LANGLE");
             break;
         case '>':
-            add_token(l, TOKEN_RANGLE);
-            debug_printf("RANGLE\n");
+            add_token(l, TOKEN_RANGLE, "TOKEN_RANGLE");
             break;
         case ':':
-            add_token(l, TOKEN_COLON);
-            debug_printf("COLON\n");
+            add_token(l, TOKEN_COLON, "TOKEN_COLON");
             break;
         case '_':
-            add_token(l, TOKEN_UNDERSCORE);
-            debug_printf("UNDERSCORE\n");
+            add_token(l, TOKEN_UNDERSCORE, "TOKEN_UNDERSCORE");
             break;
         case '/':
             if (match(l, '/')) {
                 while (peek(l) != '\n' && !is_eof(l)) {
                     advance(l);
                 }
-                debug_printf("COMMENT\n");
             } else if (match(l, '*')) {
                 while (peek(l) != '*' && peek_next(l) != '/' && !is_eof(l)) {
                     if (peek(l) == '\n') {
@@ -298,16 +293,13 @@ void scan_token(Lexer *l) {
                     advance(l);
                 }
                 if (is_eof(l)) {
-                    add_token(l, TOKEN_ERROR);
-                    debug_printf("ERROR\n");
+                    add_token(l, TOKEN_ERROR, "TOKEN_ERROR");
                     return;
                 }
                 advance(l);
                 advance(l);
-                debug_printf("MULTILINE COMMENT\n");
             } else {
-                add_token(l, TOKEN_SLASH);
-                debug_printf("SLASH\n");
+                add_token(l, TOKEN_SLASH, "TOKEN_SLASH");
             }
             break;
         case ' ':
@@ -321,26 +313,188 @@ void scan_token(Lexer *l) {
             string(l);
             break;
         case '|':
-            add_token(l, match(l, '|') ? TOKEN_PIPE_OR : TOKEN_PIPE);
-            debug_printf("PIPE\n");
+            if (match(l, '|')) {
+                add_token(l, TOKEN_PIPE_OR, "TOKEN_PIPE_OR");
+            } else {
+                add_token(l, TOKEN_PIPE, "TOKEN_PIPE");
+            }
             break;
         case '&':
-            add_token(l, match(l, '&') ? TOKEN_AMPERSAND_AND : TOKEN_AMPERSAND);
-            debug_printf("AMPERSAND\n");
+            if (match(l, '&')) {
+                add_token(l, TOKEN_AMPERSAND_AND, "TOKEN_AMPERSAND_AND");
+            } else {
+                add_token(l, TOKEN_AMPERSAND, "TOKEN_AMPERSAND");
+            }
             break;
         default:
             if (is_digit(c)) {
                 number(l);
-                debug_printf("NUMBER\n");
             } else if (isalpha(c)) {
                 identifier(l);
-                debug_printf("IDENTIFIER\n");
             } else {
-                add_token(l, TOKEN_ERROR);
-                debug_printf("ERROR\n");
+                add_token(l, TOKEN_ERROR, "TOKEN_ERROR");
             }
             break;
     }
+}
+
+Token *next_token(Lexer *l) {
+    if (!is_eof(l)) {
+        l->start = l->current;
+        scan_token(l);
+    } else {
+        add_token(l, TOKEN_EOF, "TOKEN_EOF");
+    }
+    list_node_t *token = list_at(l->tokens, l->current);
+    return (Token *)token->val;
+}
+
+char *token_kind_to_string(enum TokenKind kind) {
+    switch (kind) {
+        case TOKEN_INT:
+            return "TOKEN_INT\0";
+        case TOKEN_STRING:
+            return "TOKEN_STRING\0";
+        case TOKEN_CHAR:
+            return "TOKEN_CHAR\0";
+        case TOKEN_BOOL:
+            return "TOKEN_BOOL\0";
+        case TOKEN_FLOAT:
+            return "TOKEN_FLOAT\0";
+        case TOKEN_IDENTIFIER:
+            return "TOKEN_IDENTIFIER\0";
+        case TOKEN_COMMENT:
+            return "TOKEN_COMMENT\0";
+        case TOKEN_MULTISTRING:
+            return "TOKEN_MULTISTRING\0";
+        case TOKEN_SEMICOLON:
+            return "TOKEN_SEMICOLON\0";
+        case TOKEN_LPAREN:
+            return "TOKEN_LPAREN\0";
+        case TOKEN_RPAREN:
+            return "TOKEN_RPAREN\0";
+        case TOKEN_LBRACKET:
+            return "TOKEN_LBRACKET\0";
+        case TOKEN_RBRACKET:
+            return "TOKEN_RBRACKET\0";
+        case TOKEN_LBRACE:
+            return "TOKEN_LBRACE\0";
+        case TOKEN_RBRACE:
+            return "TOKEN_RBRACE\0";
+        case TOKEN_LANGLE:
+            return "TOKEN_LANGLE\0";
+        case TOKEN_RANGLE:
+            return "TOKEN_RANGLE\0";
+        case TOKEN_ARROW:
+            return "TOKEN_ARROW\0";
+        case TOKEN_FATARROW:
+            return "TOKEN_FATARROW\0";
+        case TOKEN_EQ:
+            return "TOKEN_EQ\0";
+        case TOKEN_EQ2:
+            return "TOKEN_EQ2\0";
+        case TOKEN_NOTEQ:
+            return "TOKEN_NOTEQ\0";
+        case TOKEN_GTEQ:
+            return "TOKEN_GTEQ\0";
+        case TOKEN_LTEQ:
+            return "TOKEN_LTEQ\0";
+        case TOKEN_COLON:
+            return "TOKEN_COLON\0";
+        case TOKEN_PIPE:
+            return "TOKEN_PIPE\0";
+        case TOKEN_PIPE_OR:
+            return "TOKEN_PIPE_OR\0";
+        case TOKEN_AMPERSAND:
+            return "TOKEN_AMPERSAND\0";
+        case TOKEN_AMPERSAND_AND:
+            return "TOKEN_AMPERSAND_AND\0";
+        case TOKEN_PLUS:
+            return "TOKEN_PLUS\0";
+        case TOKEN_MINUS:
+            return "TOKEN_MINUS\0";
+        case TOKEN_STAR:
+            return "TOKEN_STAR\0";
+        case TOKEN_SLASH:
+            return "TOKEN_SLASH\0";
+        case TOKEN_BACKSLASH:
+            return "TOKEN_BACKSLASH\0";
+        case TOKEN_CARET:
+            return "TOKEN_CARET\0";
+        case TOKEN_PERCENT:
+            return "TOKEN_PERCENT\0";
+        case TOKEN_BANG:
+            return "TOKEN_BANG\0";
+        case TOKEN_QUESTION:
+            return "TOKEN_QUESTION\0";
+        case TOKEN_DOT:
+            return "TOKEN_DOT\0";
+        case TOKEN_COMMA:
+            return "TOKEN_COMMA\0";
+        case TOKEN_UNDERSCORE:
+            return "TOKEN_UNDERSCORE\0";
+        case TOKEN_FN_:
+            return "TOKEN_FN_\0";
+        case TOKEN_LET:
+            return "TOKEN_LET\0";
+        case TOKEN_IF:
+            return "TOKEN_IF\0";
+        case TOKEN_ELSE:
+            return "TOKEN_ELSE\0";
+        case TOKEN_MATCH:
+            return "TOKEN_MATCH\0";
+        case TOKEN_ENUM:
+            return "TOKEN_ENUM\0";
+        case TOKEN_STRUCT:
+            return "TOKEN_STRUCT\0";
+        case TOKEN_TYPE:
+            return "TOKEN_TYPE\0";
+        case TOKEN_INTERFACE:
+            return "TOKEN_INTERFACE\0";
+        case TOKEN_IMPL:
+            return "TOKEN_IMPL\0";
+        case TOKEN_CONST:
+            return "TOKEN_CONST\0";
+        case TOKEN_RETURN:
+            return "TOKEN_RETURN\0";
+        case TOKEN_DEFER:
+            return "TOKEN_DEFER\0";
+        case TOKEN_USE:
+            return "TOKEN_USE\0";
+        case TOKEN_SPAWN:
+            return "TOKEN_SPAWN\0";
+        case TOKEN_MUT:
+            return "TOKEN_MUT\0";
+        case TOKEN_FOR:
+            return "TOKEN_FOR\0";
+        case TOKEN_IN_:
+            return "TOKEN_IN_\0";
+        case TOKEN_WHILE:
+            return "TOKEN_WHILE\0";
+        case TOKEN_LOOP:
+            return "TOKEN_LOOP\0";
+        case TOKEN_BREAK:
+            return "TOKEN_BREAK\0";
+        case TOKEN_CONTINUE:
+            return "TOKEN_CONTINUE\0";
+        case TOKEN_SELECT:
+            return "TOKEN_SELECT\0";
+        case TOKEN_ERROR:
+            return "TOKEN_ERROR\0";
+        case TOKEN_NULL:
+            return "TOKEN_NULL\0";
+        case TOKEN_EOF:
+            return "TOKEN_EOF\0";
+        default:
+            return "UNKNOWN_TOKEN\0";
+    }
+}
+
+char *token_to_string(Token *token) {
+    if (token != NULL) {
+        return token->string;
+    }
+    return "Empty Token";
 }
 
 void scan_tokens(Lexer *l) {
@@ -348,6 +502,5 @@ void scan_tokens(Lexer *l) {
         l->start = l->current;
         scan_token(l);
     }
-    add_token(l, TOKEN_EOF);
-    debug_printf("EOF\n");
+    add_token(l, TOKEN_EOF, "TOKEN_EOF");
 }

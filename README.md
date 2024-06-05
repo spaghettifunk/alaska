@@ -2,7 +2,7 @@
 
 This is the Alaska programming language written in C. Alaska is a combination of `Go` and `Rust`.
 
-To run the binary, do `make run input=compiler/tests/test.ak`. If you want to add Debug information, add the `debug=1` on the end of the previous command.
+To run the binary, do `make run input=compiler/tests/test.ask`. If you want to add Debug information, add the `debug=1` on the end of the previous command.
 
 ## Why another language?
 

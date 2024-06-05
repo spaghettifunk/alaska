@@ -1,9 +1,3 @@
-use fmt
-
-fn main() -> int {
-    fmt.Printf("hello %v", 4.42)
-    return 1
-}
 
 fn print() -> string {
     return "hello string"

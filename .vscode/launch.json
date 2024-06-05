@@ -9,7 +9,7 @@
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/bin/alaska",
-      "args": ["compiler/tests/test.ak"],
+      "args": ["compiler/tests/test.ask"],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
       "environment": [],

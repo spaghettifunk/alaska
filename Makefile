@@ -28,6 +28,10 @@ else
 endif
 
 # Targets
+.PHONY: clean
+clean: # clean the project
+	@echo Cleaning...
+	@rm -rf $(BUILD_DIR) $(BIN_DIR)
 
 # Build executable
 $(NAME): dir $(OBJS)
@@ -36,6 +40,8 @@ $(NAME): dir $(OBJS)
 # Build object files and third-party libraries
 .PHONY: dir
 $(OBJS): dir
+	@echo Building $@...
+	@mkdir -p $(BIN_DIR)
 	@mkdir -p $(BUILD_DIR)/$(@D)
 	@$(CC) $(CFLAGS) -o $(BUILD_DIR)/$@ -c $*.c
 

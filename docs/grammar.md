@@ -12,11 +12,9 @@ group       = "(" expression ")" .
 option      = "[" expression "]" .
 repetition  = "{" expression "}" .
 
-newline        = /* the Unicode code point U+000A */ .
-unicode_char   = /* an arbitrary Unicode code point except newline */ .
-unicode_letter = /* a Unicode code point categorized as "Letter" */ .
-unicode_digit  = /* a Unicode code point categorized as "Number, decimal digit" */ .
-letter        = unicode_letter | "_" .
+newline       = "\n" .
+letter        = "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j" | "k" | "l" | "m" | "n" | "o" | "p" | "q" | "r" | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z" |
+         "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J" | "K" | "L" | "M" | "N" | "O" | "P" | "Q" | "R" | "S" | "T" | "U" | "V" | "W" | "X" | "Y" | "Z" .
 decimal_digit = "0" ... "9" .
 binary_digit  = "0" | "1" .
 octal_digit   = "0" ... "7" .
@@ -45,7 +43,7 @@ hex_mantissa      = [ "_" ] hex_digits "." [ hex_digits ] |
 hex_exponent      = ( "p" | "P" ) [ "+" | "-" ] decimal_digits .
 
 rune_lit         = "'" ( unicode_value | byte_value ) "'" .
-unicode_value    = unicode_char | little_u_value | big_u_value | escaped_char .
+unicode_value    = letter | little_u_value | big_u_value | escaped_char .
 byte_value       = octal_byte_value | hex_byte_value .
 octal_byte_value = `\` octal_digit octal_digit octal_digit .
 hex_byte_value   = `\` "x" hex_digit hex_digit .
@@ -55,10 +53,10 @@ big_u_value      = `\` "U" hex_digit hex_digit hex_digit hex_digit
 escaped_char     = `\` ( "a" | "b" | "f" | "n" | "r" | "t" | "v" | `\` | "'" | `"` ) .
 
 string_lit             = raw_string_lit | interpreted_string_lit .
-raw_string_lit         = "`" { unicode_char | newline } "`" .
+raw_string_lit         = "`" { letter | newline } "`" .
 interpreted_string_lit = `"` { unicode_value | byte_value } `"` .
 
-identifier     = letter { letter | unicode_digit } .
+identifier     = letter { letter | decimal_digit } .
 
 expression = unaryExpr | expression binary_op expression .
 unaryExpr  = PrimaryExpr | unary_op unaryExpr .
