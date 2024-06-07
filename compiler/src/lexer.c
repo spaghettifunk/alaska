@@ -54,9 +54,11 @@ Lexer *new_lexer(char *input) {
     l->start = 0;
     l->current = 0;
     l->line = 1;
+    l->token_scanned = 0;
 
     // generate the keyword map
     map = hashmap_new(sizeof(struct Keyword), 0, 0, 0, keyword_hash, keyword_compare, NULL, NULL);
+    hashmap_set(map, &(struct Keyword){.literal = "package", .kind = TOKEN_PACKAGE});
     hashmap_set(map, &(struct Keyword){.literal = "fn", .kind = TOKEN_FN_});
     hashmap_set(map, &(struct Keyword){.literal = "let", .kind = TOKEN_LET});
     hashmap_set(map, &(struct Keyword){.literal = "if", .kind = TOKEN_IF});
@@ -107,6 +109,7 @@ void add_token(Lexer *l, enum TokenKind kind, char *string) {
     Token *token = new_token(kind, lexeme, NULL, l->line, string);
 
     list_rpush(l->tokens, list_node_new(token));
+    l->token_scanned++;
 }
 
 void add_token_literal(Lexer *l, enum TokenKind kind, char *string, void *literal) {
@@ -117,6 +120,7 @@ void add_token_literal(Lexer *l, enum TokenKind kind, char *string, void *litera
     Token *token = new_token(kind, lexeme, literal, l->line, string);
 
     list_rpush(l->tokens, list_node_new(token));
+    l->token_scanned++;
 }
 
 boolean is_alpha(char c) {
@@ -164,7 +168,7 @@ void string(Lexer *l) {
         advance(l);
     }
     if (is_eof(l)) {
-        add_token(l, TOKEN_ERROR, "TOKEN_ERROR");
+        add_token(l, TOKEN_ERROR, "!!!error!!!");
         return;
     }
     // closing the string
@@ -175,7 +179,7 @@ void string(Lexer *l) {
     memcpy(value, &l->source[l->start + 1], l->current - l->start - 2);
     value[l->current - l->start - 2] = '\0';
 
-    add_token_literal(l, TOKEN_STRING, "TOKEN_STRING", value);
+    add_token_literal(l, TOKEN_STRING, value, value);
 }
 
 void number(Lexer *l) {
@@ -196,10 +200,10 @@ void number(Lexer *l) {
     value[l->current - l->start] = '\0';
 
     if (is_float) {
-        add_token_literal(l, TOKEN_FLOAT, "TOKEN_FLOAT", value);
+        add_token_literal(l, TOKEN_FLOAT, value, value);
         return;
     }
-    add_token_literal(l, TOKEN_INT, "TOKEN_INT", value);
+    add_token_literal(l, TOKEN_INT, value, value);
 }
 
 void identifier(Lexer *l) {
@@ -213,72 +217,133 @@ void identifier(Lexer *l) {
 
     const struct Keyword *keyword = hashmap_get(map, &(struct Keyword){.literal = value});
     if (keyword != NULL) {
-        add_token(l, keyword->kind, "TOKEN_KEYWORD");
+        add_token(l, keyword->kind, value);
         return;
     }
-    add_token(l, TOKEN_IDENTIFIER, "TOKEN_IDENTIFIER");
+    add_token(l, TOKEN_IDENTIFIER, value);
 }
 
 void scan_token(Lexer *l) {
-    char c = l->source[l->current];
+    char c;
+scanner:
+    c = l->source[l->current];
     l->current++;
     switch (c) {
         case '(':
-            add_token(l, TOKEN_LPAREN, "TOKEN_LPAREN");
+            add_token(l, TOKEN_LPAREN, "(");
             break;
         case ')':
-            add_token(l, TOKEN_RPAREN, "TOKEN_RPAREN");
+            add_token(l, TOKEN_RPAREN, ")");
             break;
         case '{':
-            add_token(l, TOKEN_LBRACE, "TOKEN_LBRACE");
+            add_token(l, TOKEN_LBRACE, "{");
             break;
         case '}':
-            add_token(l, TOKEN_RBRACE, "TOKEN_RBRACE");
+            add_token(l, TOKEN_RBRACE, "}");
             break;
         case '[':
-            add_token(l, TOKEN_LBRACKET, "TOKEN_LBRACKET");
+            add_token(l, TOKEN_LBRACKET, "[");
             break;
         case ']':
-            add_token(l, TOKEN_RBRACKET, "TOKEN_RBRACKET");
+            add_token(l, TOKEN_RBRACKET, "]");
             break;
         case ',':
-            add_token(l, TOKEN_COMMA, "TOKEN_COMMA");
+            add_token(l, TOKEN_COMMA, ",");
             break;
         case '.':
-            add_token(l, TOKEN_DOT, "TOKEN_DOT");
+            add_token(l, TOKEN_DOT, ".");
             break;
         case '-':
-            add_token(l, TOKEN_MINUS, "TOKEN_MINUS");
+            if (match(l, '>')) {
+                add_token(l, TOKEN_ARROW, "->");
+            } else if (match(l, '=')) {
+                add_token(l, TOKEN_SUB_ASSIGN, "-=");
+            } else if (match(l, '-')) {
+                add_token(l, TOKEN_DECREMENT, "--");
+            } else {
+                add_token(l, TOKEN_MINUS, "-");
+            }
             break;
         case '+':
-            add_token(l, TOKEN_PLUS, "TOKEN_PLUS");
+            if (match(l, '=')) {
+                add_token(l, TOKEN_ADD_ASSIGN, "+=");
+            } else if (match(l, '+')) {
+                add_token(l, TOKEN_INCREMENT, "++");
+            } else {
+                add_token(l, TOKEN_PLUS, "+");
+            }
             break;
         case ';':
-            add_token(l, TOKEN_SEMICOLON, "TOKEN_SEMICOLON");
+            add_token(l, TOKEN_SEMICOLON, ";");
             break;
         case '*':
-            add_token(l, TOKEN_STAR, "TOKEN_STAR");
+            if (match(l, '=')) {
+                add_token(l, TOKEN_MUL_ASSIGN, "*=");
+            } else {
+                add_token(l, TOKEN_STAR, "*");
+            }
             break;
         case '%':
-            add_token(l, TOKEN_PERCENT, "TOKEN_PERCENT");
+            if (match(l, '=')) {
+                add_token(l, TOKEN_MOD_ASSIGN, "%=");
+            } else {
+                add_token(l, TOKEN_PERCENT, "%");
+            }
             break;
         case '!':
-            add_token(l, TOKEN_BANG, "TOKEN_BANG");
+            if (match(l, '=')) {
+                add_token(l, TOKEN_NOTEQ, "!=");
+            } else {
+                add_token(l, TOKEN_BANG, "!");
+            }
             break;
         case '=':
-            add_token(l, TOKEN_EQ, "TOKEN_EQ");
+            if (match(l, '=')) {
+                add_token(l, TOKEN_EQ, "==");
+            } else {
+                add_token(l, TOKEN_ASSIGN, "=");
+            }
             break;
         case '<':
-            add_token(l, TOKEN_LANGLE, "TOKEN_LANGLE");
+            if (match(l, '=')) {
+                add_token(l, TOKEN_LTEQ, "<=");
+            } else if (match(l, '<')) {
+                if (peek(l) == '=') {
+                    advance(l);
+                    add_token(l, TOKEN_SHL_ASSIGN, "<<=");
+                } else {
+                    add_token(l, TOKEN_SHIFTLEFT, "<<");
+                }
+            } else {
+                add_token(l, TOKEN_LANGLE, "<");
+            }
             break;
         case '>':
-            add_token(l, TOKEN_RANGLE, "TOKEN_RANGLE");
+            if (match(l, '=')) {
+                add_token(l, TOKEN_GTEQ, ">=");
+            } else if (match(l, '>')) {
+                if (peek(l) == '=') {
+                    advance(l);
+                    add_token(l, TOKEN_SHR_ASSIGN, ">>=");
+                } else {
+                    add_token(l, TOKEN_SHIFTRIGHT, ">>");
+                }
+            } else {
+                add_token(l, TOKEN_RANGLE, ">");
+            }
+            break;
+        case '^':
+            if (match(l, '=')) {
+                add_token(l, TOKEN_XOR_ASSIGN, "^=");
+            } else {
+                add_token(l, TOKEN_CARET, "^");
+            }
             break;
         case ':':
-            add_token(l, TOKEN_COLON, "TOKEN_COLON");
+            add_token(l, TOKEN_COLON, ":");
             break;
         case '_':
-            add_token(l, TOKEN_UNDERSCORE, "TOKEN_UNDERSCORE");
+            add_token(l, TOKEN_UNDERSCORE, "_");
             break;
         case '/':
             if (match(l, '/')) {
@@ -293,37 +358,47 @@ void scan_token(Lexer *l) {
                     advance(l);
                 }
                 if (is_eof(l)) {
-                    add_token(l, TOKEN_ERROR, "TOKEN_ERROR");
+                    add_token(l, TOKEN_ERROR, "!!!error!!!");
                     return;
                 }
                 advance(l);
                 advance(l);
+            } else if (match(l, '=')) {
+                add_token(l, TOKEN_DIV_ASSIGN, "/=");
             } else {
-                add_token(l, TOKEN_SLASH, "TOKEN_SLASH");
+                add_token(l, TOKEN_SLASH, "/");
             }
             break;
         case ' ':
         case '\r':
         case '\t':
-            break;
+            l->current++;
+            l->start++;
+            goto scanner;
         case '\n':
             l->line++;
-            break;
+            l->current++;
+            l->start++;
+            goto scanner;
         case '"':
             string(l);
             break;
         case '|':
             if (match(l, '|')) {
-                add_token(l, TOKEN_PIPE_OR, "TOKEN_PIPE_OR");
+                add_token(l, TOKEN_PIPE_OR, "||");
+            } else if (match(l, '=')) {
+                add_token(l, TOKEN_OR_ASSIGN, "|=");
             } else {
-                add_token(l, TOKEN_PIPE, "TOKEN_PIPE");
+                add_token(l, TOKEN_PIPE, "|");
             }
             break;
         case '&':
             if (match(l, '&')) {
-                add_token(l, TOKEN_AMPERSAND_AND, "TOKEN_AMPERSAND_AND");
+                add_token(l, TOKEN_AMPERSAND_AND, "&&");
+            } else if (match(l, '=')) {
+                add_token(l, TOKEN_AND_ASSIGN, "&=");
             } else {
-                add_token(l, TOKEN_AMPERSAND, "TOKEN_AMPERSAND");
+                add_token(l, TOKEN_AMPERSAND, "&");
             }
             break;
         default:
@@ -332,7 +407,7 @@ void scan_token(Lexer *l) {
             } else if (isalpha(c)) {
                 identifier(l);
             } else {
-                add_token(l, TOKEN_ERROR, "TOKEN_ERROR");
+                add_token(l, TOKEN_ERROR, "!!!error!!!");
             }
             break;
     }
@@ -343,9 +418,9 @@ Token *next_token(Lexer *l) {
         l->start = l->current;
         scan_token(l);
     } else {
-        add_token(l, TOKEN_EOF, "TOKEN_EOF");
+        add_token(l, TOKEN_EOF, "EOF");
     }
-    list_node_t *token = list_at(l->tokens, l->current);
+    list_node_t *token = list_at(l->tokens, l->token_scanned - 1);
     return (Token *)token->val;
 }
 
@@ -391,8 +466,8 @@ char *token_kind_to_string(enum TokenKind kind) {
             return "TOKEN_FATARROW\0";
         case TOKEN_EQ:
             return "TOKEN_EQ\0";
-        case TOKEN_EQ2:
-            return "TOKEN_EQ2\0";
+        case TOKEN_ASSIGN:
+            return "TOKEN_ASSIGN\0";
         case TOKEN_NOTEQ:
             return "TOKEN_NOTEQ\0";
         case TOKEN_GTEQ:

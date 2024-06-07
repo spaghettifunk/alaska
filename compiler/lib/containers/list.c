@@ -211,3 +211,12 @@ void list_remove(list_t *self, list_node_t *node) {
     LIST_FREE(node);
     --self->len;
 }
+
+/*
+ * Return the length of the list.
+ * @self: Pointer to the list to get the length
+ */
+
+unsigned int list_len(list_t *self) {
+    return self->len;
+}

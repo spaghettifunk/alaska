@@ -8,10 +8,6 @@
 #ifndef __CLIBS_LIST_H__
 #define __CLIBS_LIST_H__
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #include <stdlib.h>
 
 // Library version
@@ -120,8 +116,6 @@ list_iterator_next(list_iterator_t *self);
 
 void list_iterator_destroy(list_iterator_t *self);
 
-#ifdef __cplusplus
-}
-#endif
+unsigned int list_len(list_t *self);
 
 #endif /* __CLIBS_LIST_H__ */

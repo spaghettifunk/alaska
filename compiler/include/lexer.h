@@ -24,7 +24,7 @@ typedef enum TokenKind {
     TOKEN_ARROW,
     TOKEN_FATARROW,
     TOKEN_EQ,
-    TOKEN_EQ2,
+    TOKEN_ASSIGN,
     TOKEN_NOTEQ,
     TOKEN_GTEQ,
     TOKEN_LTEQ,
@@ -37,6 +37,20 @@ typedef enum TokenKind {
     TOKEN_MINUS,
     TOKEN_STAR,
     TOKEN_SLASH,
+    TOKEN_SHIFTRIGHT,
+    TOKEN_SHIFTLEFT,
+    TOKEN_DECREMENT,
+    TOKEN_INCREMENT,
+    TOKEN_ADD_ASSIGN,
+    TOKEN_SUB_ASSIGN,
+    TOKEN_MUL_ASSIGN,
+    TOKEN_DIV_ASSIGN,
+    TOKEN_MOD_ASSIGN,
+    TOKEN_AND_ASSIGN,
+    TOKEN_OR_ASSIGN,
+    TOKEN_XOR_ASSIGN,
+    TOKEN_SHL_ASSIGN,
+    TOKEN_SHR_ASSIGN,
     TOKEN_BACKSLASH,
     TOKEN_CARET,
     TOKEN_PERCENT,
@@ -71,6 +85,7 @@ typedef enum TokenKind {
     TOKEN_SELECT,
     TOKEN_ERROR,
     TOKEN_NULL,
+    TOKEN_PACKAGE,
     TOKEN_EOF,
 } TokenKind;
 
@@ -90,6 +105,7 @@ typedef struct
     int start;
     int current;
     int line;
+    int token_scanned;
 } Lexer;
 
 Lexer *new_lexer(char *source);
