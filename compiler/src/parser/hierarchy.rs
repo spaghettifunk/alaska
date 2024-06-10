@@ -214,6 +214,34 @@ where
                 self.consume(T!['}']);
                 ast::Stmt::Block { stmts }
             }
+            T![for] => {
+                self.consume(T![for]);
+
+                let ident = self.next().expect("Expected identifier after `for`");
+                assert_eq!(
+                    ident.kind,
+                    T![ident],
+                    "Expected identifier after `for`, but found `{}`",
+                    ident.kind
+                );
+                let name = self.text(ident).to_string();
+
+                self.consume(T![range]);
+                let range = Box::new(self.expression());
+
+                assert!(self.at(T!['{']), "Expected a block after `for` statement");
+                let body = self.statement();
+                let body = match body {
+                    ast::Stmt::Block { stmts } => stmts,
+                    _ => unreachable!(),
+                };
+
+                ast::Stmt::RangeStmt {
+                    iterator: name,
+                    range,
+                    body,
+                }
+            }
             kind => panic!("Unknown start of statement: `{}`", kind),
         }
     }

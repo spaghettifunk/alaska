@@ -78,10 +78,10 @@ pub enum TokenKind {
     KeywordReturn,
     KeywordDefer,
     KeywordUse,
+    KeywordRange,
     KeywordSpawn,
     KeywordMut,
     KeywordFor,
-    KeywordIn,
     KeywordWhile,
     KeywordBreak,
     KeywordContinue,
@@ -208,6 +208,9 @@ macro_rules! T {
     [ident] => {
         $crate::lexer::TokenKind::Identifier
     };
+    [range] => {
+        $crate::lexer::TokenKind::KeywordRange
+    };
     [let] => {
         $crate::lexer::TokenKind::KeywordLet
     };
@@ -258,9 +261,6 @@ macro_rules! T {
     };
     [for] => {
         $crate::lexer::TokenKind::KeywordFor
-    };
-    [in] => {
-        $crate::lexer::TokenKind::KeywordIn
     };
     [while] => {
         $crate::lexer::TokenKind::KeywordWhile
@@ -405,7 +405,7 @@ impl fmt::Display for TokenKind {
                 T![spawn] => "spawn",
                 T![mut] => "mut",
                 T![for] => "for",
-                T![in] => "in",
+                T![range] => "range",
                 T![while] => "while",
                 T![break] => "break",
                 T![continue] => "continue",

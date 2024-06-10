@@ -129,7 +129,7 @@ where
                             self.consume(T![,]);
                         }
                     }
-                    self.consume(T![')']);                    
+                    self.consume(T![')']);
                     ast::Expr::FnCall { fn_name: name, args }
                 } else {
                     // plain identifier
@@ -204,28 +204,8 @@ where
                 T![EOF] => break,
                 T!['('] | T![')'] | T!['['] | T![']'] | T!['{'] | T!['}'] | T![,] | T![;] => break,
                 found => {
-                    panic!("Unexpected token in expression: `{}`", found);
                     // TODO: parser error here
-                    // return ParseError::UnexpectedToken {
-                    //     found,
-                    //     expected: vec![
-                    //         T![+],
-                    //         T![-],
-                    //         T![*],
-                    //         T![/],
-                    //         T![=],
-                    //         T![.],
-                    //         T![&&],
-                    //         T![||],
-                    //         T![!=],
-                    //         T![==],
-                    //         T![<],
-                    //         T![<=],
-                    //         T![>],
-                    //         T![>=],
-                    //     ],
-                    //     position: self.position(),
-                    // }
+                    panic!("Unexpected token in expression: `{}`", found);
                 }
             };
 

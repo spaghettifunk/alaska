@@ -57,6 +57,25 @@ pub enum Stmt {
         body: Vec<Stmt>,
         else_stmt: Option<Box<Stmt>>,
     },
+    RangeStmt {
+        iterator: String,
+        range: Box<Expr>,
+        body: Vec<Stmt>,
+    },
+    // ForStmt {
+    //     initializer: Box<Stmt>,
+    //     condition: Box<Expr>,
+    //     update: Box<Stmt>,
+    //     body: Vec<Stmt>,
+    // },
+    WhileStmt {
+        condition: Box<Expr>,
+        body: Vec<Stmt>,
+    },
+    MatchStmt {
+        value: Box<Expr>,
+        arms: Vec<(Expr, Vec<Stmt>)>,
+    },
     Block {
         stmts: Vec<Stmt>,
     },

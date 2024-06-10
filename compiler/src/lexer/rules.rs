@@ -268,8 +268,8 @@ pub(crate) fn get_rules() -> Vec<Rule> {
             matches: |input| match_keyword(input, "for"),
         },
         Rule {
-            kind: T![in],
-            matches: |input| match_keyword(input, "in"),
+            kind: T![range],
+            matches: |input| match_keyword(input, "range"),
         },
         Rule {
             kind: T![break],

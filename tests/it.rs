@@ -256,47 +256,47 @@ fn parse_binary_expressions() {
         parser.expression()
     }
 
-    // let expr = parse("4 + 2 * 3");
-    // assert_eq!(expr.to_string(), "(4 + (2 * 3))");
+    let expr = parse("4 + 2 * 3");
+    assert_eq!(expr.to_string(), "(4 + (2 * 3))");
 
-    // let expr = parse("4 * 2 + 3");
-    // assert_eq!(expr.to_string(), "((4 * 2) + 3)");
+    let expr = parse("4 * 2 + 3");
+    assert_eq!(expr.to_string(), "((4 * 2) + 3)");
 
-    // let expr = parse("4 - 2 - 3");
-    // assert_eq!(expr.to_string(), "((4 - 2) - 3)");
+    let expr = parse("4 - 2 - 3");
+    assert_eq!(expr.to_string(), "((4 - 2) - 3)");
 
-    // let expr = parse("4 ^ 2 ^ 3");
-    // assert_eq!(expr.to_string(), "(4 ^ (2 ^ 3))");
+    let expr = parse("4 ^ 2 ^ 3");
+    assert_eq!(expr.to_string(), "(4 ^ (2 ^ 3))");
 
-    // let expr = parse(r#"45.7 + 3 + 5 * 4^8^9 / 6 > 4 && test - 7 / 4 == "Hallo""#);
-    // assert_eq!(
-    //     expr.to_string(),
-    //     r#"((((45.7 + 3) + ((5 * (4 ^ (8 ^ 9))) / 6)) > 4) && ((test - (7 / 4)) == "Hallo"))"#
-    // );
+    let expr = parse(r#"45.7 + 3 + 5 * 4^8^9 / 6 > 4 && test - 7 / 4 == "Hallo""#);
+    assert_eq!(
+        expr.to_string(),
+        r#"((((45.7 + 3) + ((5 * (4 ^ (8 ^ 9))) / 6)) > 4) && ((test - (7 / 4)) == "Hallo"))"#
+    );
 
-    // let expr = parse("2.0 / ((3.0 + 4.0) * (5.4 - 6.0)) * 7.0");
-    // assert_eq!(expr.to_string(), "((2 / ((3 + 4) * (5.4 - 6))) * 7)");
+    let expr = parse("2.0 / ((3.0 + 4.0) * (5.4 - 6.0)) * 7.0");
+    assert_eq!(expr.to_string(), "((2 / ((3 + 4) * (5.4 - 6))) * 7)");
 
-    // let expr = parse("min ( test + 4 , sin(2*PI ))");
-    // assert_eq!(expr.to_string(), "min((test + 4),sin((2 * PI),),)");
+    let expr = parse("min ( test + 4 , sin(2*PI ))");
+    assert_eq!(expr.to_string(), "min((test + 4),sin((2 * PI),),)");
 
-    // let expr = parse(r#"a <<= 3 + 4 * 7 ^ 6 / 4"#);
-    // assert_eq!(expr.to_string(), "(a <<= (3 + ((4 * (7 ^ 6)) / 4)))");
+    let expr = parse(r#"a <<= 3 + 4 * 7 ^ 6 / 4"#);
+    assert_eq!(expr.to_string(), "(a <<= (3 + ((4 * (7 ^ 6)) / 4)))");
 
-    // let expr = parse("array[10]");
-    // assert_eq!(expr.to_string(), "array[10]");
+    let expr = parse("array[10]");
+    assert_eq!(expr.to_string(), "array[10]");
 
-    // let expr = parse("array[10 + 2]");
-    // assert_eq!(expr.to_string(), "array[(10 + 2)]");
+    let expr = parse("array[10 + 2]");
+    assert_eq!(expr.to_string(), "array[(10 + 2)]");
 
-    // let expr = parse("a += array[10 + 2]");
-    // assert_eq!(expr.to_string(), "(a += array[(10 + 2)])");
+    let expr = parse("a += array[10 + 2]");
+    assert_eq!(expr.to_string(), "(a += array[(10 + 2)])");
 
-    // let expr = parse("res.abs()");
-    // assert_eq!(expr.to_string(), "(res . abs())");
+    let expr = parse("res.abs()");
+    assert_eq!(expr.to_string(), "(res . abs())");
 
-    // let expr = parse("res.abs(math.rand[2])");
-    // assert_eq!(expr.to_string(), "(res . abs((math . rand[2]),))");
+    let expr = parse("res.abs(math.rand[2])");
+    assert_eq!(expr.to_string(), "(res . abs((math . rand[2]),))");
 }
 
 #[test]
@@ -449,6 +449,43 @@ fn parse_statements() {
 }
 
 #[test]
+fn parse_range_statement() {
+    fn parse(input: &str) -> ast::Stmt {
+        let mut parser = Parser::new(input);
+        parser.statement()
+    }
+
+    let stmt = parse(
+        unindent(
+            r#"        
+        for x range [0, 1, 2] {
+            x = x + 1;
+        }
+    "#,
+        )
+        .as_str(),
+    );
+
+    match stmt {
+        ast::Stmt::RangeStmt { iterator, range, body } => {
+            assert_eq!(iterator, "x");
+            assert_eq!(
+                range,
+                Box::new(ast::Expr::Array {
+                    elements: vec![
+                        ast::Expr::Literal(ast::Lit::Int(0)),
+                        ast::Expr::Literal(ast::Lit::Int(1)),
+                        ast::Expr::Literal(ast::Lit::Int(2)),
+                    ]
+                })
+            );
+            assert_eq!(body.len(), 1);
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
 fn parse_struct() {
     fn parse(input: &str) -> ast::Item {
         let mut parser = Parser::new(input);
@@ -547,8 +584,8 @@ fn parse_function() {
             name,
             parameters,
             body,
-            return_type,
-            return_stmt,
+            return_type: _,
+            return_stmt: _,
         } => {
             assert_eq!(name, "wow_we_did_it");
             assert_eq!(parameters.len(), 2);
