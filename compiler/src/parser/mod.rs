@@ -1,6 +1,9 @@
 use std::iter::Peekable;
 
 pub mod ast;
+mod error;
+mod expressions;
+mod hierarchy;
 
 use crate::{
     lexer::{Lexer, Token, TokenKind},
@@ -25,7 +28,7 @@ impl<'input> Iterator for TokenIter<'input> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let next_token = self.lexer.next()?;
-            if !matches!(next_token.kind, T![ws] | T![comment]) {
+            if !matches!(next_token.kind, T![ws] | T![comment] | T![block comment]) {
                 return Some(next_token);
             } // else continue
         }
@@ -85,85 +88,5 @@ where
             "Expected to consume `{}`, but found `{}`",
             expected, token.kind
         );
-    }
-}
-
-impl<'input, I> Parser<'input, I>
-where
-    I: Iterator<Item = Token>,
-{
-    pub fn parse_expression(&mut self) -> ast::Expr {
-        match self.peek() {
-            // `lit @ T![int]` (and similar) gives a name to the kind that is matched, so that I can use it again in the second match.
-            // The result is equivalent to calling let lit = self.peek() again at the start of the outer match
-            lit @ T![int] | lit @ T![float] | lit @ T![string] => {
-                let literal_text = {
-                    // the calls on `self` need to be split, because `next` takes
-                    // `&mut self` if `peek` is not `T![EOF]`, then there must be
-                    // a next token
-                    let literal_token = self.next().unwrap();
-                    self.text(literal_token)
-                };
-                let lit = match lit {
-                    T![int] => ast::Lit::Int(
-                        literal_text
-                            .parse()
-                            .expect(&format!("invalid integer literal: `{}`", literal_text)),
-                    ),
-                    T![float] => ast::Lit::Float(
-                        literal_text
-                            .parse()
-                            .expect(&format!("invalid floating point literal: `{}`", literal_text)),
-                    ),
-                    T![string] => ast::Lit::Str(
-                        // trim the quotation marks
-                        literal_text[1..(literal_text.len() - 1)].to_string(),
-                    ),
-                    _ => unreachable!(),
-                };
-                ast::Expr::Literal(lit)
-            }
-            T![ident] => {
-                let name = {
-                    let ident_token = self.next().unwrap();
-                    self.text(ident_token).to_string() // <- now we need a copy
-                };
-                if !self.at(T!['(']) {
-                    // plain identifier
-                    ast::Expr::Ident(name)
-                } else {
-                    //  function call
-                    let mut args = Vec::new();
-                    self.consume(T!['(']);
-                    while !self.at(T![')']) {
-                        let arg = self.parse_expression();
-                        args.push(arg);
-                        if self.at(T![,]) {
-                            self.consume(T![,]);
-                        }
-                    }
-                    self.consume(T![')']);
-                    ast::Expr::FnCall { fn_name: name, args }
-                }
-            }
-            T!['('] => {
-                // There is no AST node for grouped expressions.
-                // Parentheses just influence the tree structure.
-                self.consume(T!['(']);
-                let expr = self.parse_expression();
-                self.consume(T![')']);
-                expr
-            }
-            op @ T![+] | op @ T![-] | op @ T![!] => {
-                self.consume(op);
-                let expr = self.parse_expression();
-                ast::Expr::PrefixOp {
-                    op,
-                    expr: Box::new(expr),
-                }
-            }
-            // TODO: implement the rest of the cases
-            _ => todo!(),
-        }
-    }
+    } 
 }

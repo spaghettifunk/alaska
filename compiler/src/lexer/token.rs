@@ -14,6 +14,7 @@ pub enum TokenKind {
     Identifier,
     Type,
     Comment,
+    BlockComment,
     Semicolon,
     LParen,
     RParen,
@@ -185,6 +186,9 @@ macro_rules! T {
     };
     [comment] => {
         $crate::lexer::TokenKind::Comment
+    };
+    [block comment] => {
+        $crate::lexer::TokenKind::BlockComment
     };
     [int] => {
         $crate::lexer::TokenKind::Int
@@ -373,11 +377,12 @@ impl fmt::Display for TokenKind {
                 T!['('] => "(",
                 T![')'] => ")",
                 T!['\\'] => "\\",
+                T![comment] => "// Comment",
+                T![block comment] => "/* Block Comment */",
                 // Multiple characters
                 T![true] => "true",
                 T![false] => "false",
                 T![string] => "String",
-                T![comment] => "// Comment",
                 T![int] => "Int",
                 T![float] => "Float",
                 T![ident] => "Identifier",

@@ -67,6 +67,7 @@ fn match_keyword(input: &str, keyword: &str) -> Option<u32> {
 lazy_static! {
     static ref STRING_REGEX: Regex = Regex::new(r#"^"((\\"|\\\\)|[^\\"])*""#).unwrap();
     static ref COMMENT_REGEX: Regex = Regex::new(r#"^//[^\n]*\n"#).unwrap();
+    static ref MULTILINE_COMMENT_REGEX: Regex = Regex::new(r#"^/\*([^*]|\*[^/])*\*/"#).unwrap();
     static ref FLOAT_REGEX: Regex = Regex::new(r#"^((\d+(\.\d+)?)|(\.\d+))([Ee](\+|-)?\d+)?"#).unwrap();
     static ref IDENTIFIER_REGEX: Regex = Regex::new(r##"^([A-Za-z]|_)([A-Za-z]|_|\d)*"##).unwrap();
     static ref CHAR_REGEX: Regex = Regex::new(r#"^'[a-zA-Z0-9!-\\/:-@[-`{-~]]'"#).unwrap(); // single char using '' and ASCII range
@@ -309,6 +310,10 @@ pub(crate) fn get_rules() -> Vec<Rule> {
         Rule {
             kind: T![comment],
             matches: move |input| match_regex(input, &COMMENT_REGEX),
+        },
+        Rule {
+            kind: T![block comment],
+            matches: move |input| match_regex(input, &MULTILINE_COMMENT_REGEX),
         },
         Rule {
             kind: T![int],

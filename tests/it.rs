@@ -126,6 +126,7 @@ fn function() {
             }
             return true
         }
+        /* end of file */
     "#;
     let input = unindent(input);
     let mut lexer = Lexer::new(input.as_str());
@@ -159,6 +160,7 @@ fn function() {
             T!['}'], // end if
             T![return], T![true],
         T!['}'], // end fn
+        T![block comment], // block comment
         T![EOF],
     ]);
 }
@@ -202,7 +204,7 @@ fn struct_def() {
 fn parse_expression() {
     fn parse(input: &str) -> ast::Expr {
         let mut parser = Parser::new(input);
-        parser.parse_expression()
+        parser.expression()
     }
 
     // Weird spaces are to test that whitespace gets filtered out
@@ -245,4 +247,492 @@ fn parse_expression() {
             expr: Box::new(ast::Expr::Literal(ast::Lit::Int(13))),
         }
     );
+}
+
+#[test]
+fn parse_binary_expressions() {
+    fn parse(input: &str) -> ast::Expr {
+        let mut parser = Parser::new(input);
+        parser.expression()
+    }
+
+    // let expr = parse("4 + 2 * 3");
+    // assert_eq!(expr.to_string(), "(4 + (2 * 3))");
+
+    // let expr = parse("4 * 2 + 3");
+    // assert_eq!(expr.to_string(), "((4 * 2) + 3)");
+
+    // let expr = parse("4 - 2 - 3");
+    // assert_eq!(expr.to_string(), "((4 - 2) - 3)");
+
+    // let expr = parse("4 ^ 2 ^ 3");
+    // assert_eq!(expr.to_string(), "(4 ^ (2 ^ 3))");
+
+    // let expr = parse(r#"45.7 + 3 + 5 * 4^8^9 / 6 > 4 && test - 7 / 4 == "Hallo""#);
+    // assert_eq!(
+    //     expr.to_string(),
+    //     r#"((((45.7 + 3) + ((5 * (4 ^ (8 ^ 9))) / 6)) > 4) && ((test - (7 / 4)) == "Hallo"))"#
+    // );
+
+    // let expr = parse("2.0 / ((3.0 + 4.0) * (5.4 - 6.0)) * 7.0");
+    // assert_eq!(expr.to_string(), "((2 / ((3 + 4) * (5.4 - 6))) * 7)");
+
+    // let expr = parse("min ( test + 4 , sin(2*PI ))");
+    // assert_eq!(expr.to_string(), "min((test + 4),sin((2 * PI),),)");
+
+    // let expr = parse(r#"a <<= 3 + 4 * 7 ^ 6 / 4"#);
+    // assert_eq!(expr.to_string(), "(a <<= (3 + ((4 * (7 ^ 6)) / 4)))");
+
+    // let expr = parse("array[10]");
+    // assert_eq!(expr.to_string(), "array[10]");
+
+    // let expr = parse("array[10 + 2]");
+    // assert_eq!(expr.to_string(), "array[(10 + 2)]");
+
+    // let expr = parse("a += array[10 + 2]");
+    // assert_eq!(expr.to_string(), "(a += array[(10 + 2)])");
+
+    // let expr = parse("res.abs()");
+    // assert_eq!(expr.to_string(), "(res . abs())");
+
+    // let expr = parse("res.abs(math.rand[2])");
+    // assert_eq!(expr.to_string(), "(res . abs((math . rand[2]),))");
+}
+
+#[test]
+fn parse_postfix_op() {
+    fn parse(input: &str) -> ast::Expr {
+        let mut parser = Parser::new(input);
+        parser.expression()
+    }
+
+    let expr = parse("4 + -2! * 3");
+    assert_eq!(expr.to_string(), "(4 + ((- (2 !)) * 3))");
+}
+
+#[test]
+fn parse_statements() {
+    fn parse(input: &str) -> ast::Stmt {
+        let mut parser = Parser::new(input);
+        parser.statement()
+    }
+
+    let stmt = parse(
+        unindent(
+            r#"
+        {
+            let x = 7 + sin(y);
+            {
+                x = 3;
+                if (bar < 3) {
+                    x = x + 1;
+                    y = 3 * x;
+                } else if (bar < 2) {
+                    let i = 2!;
+                    x = x + i;
+                } else {
+                    x = 1;
+                }
+            }
+        }
+    "#,
+        )
+        .as_str(),
+    );
+
+    let stmts = match stmt {
+        ast::Stmt::Block { stmts } => stmts,
+        _ => unreachable!(),
+    };
+    assert_eq!(stmts.len(), 2);
+
+    let let_stmt = &stmts[0];
+    match let_stmt {
+        ast::Stmt::Let { var_name, .. } => assert_eq!(var_name, "x"),
+        _ => unreachable!(),
+    }
+
+    let stmts = match &stmts[1] {
+        ast::Stmt::Block { stmts } => stmts,
+        _ => unreachable!(),
+    };
+    assert_eq!(stmts.len(), 2);
+
+    let assignment_stmt = &stmts[0];
+    match assignment_stmt {
+        ast::Stmt::Assignment { var_name, .. } => {
+            assert_eq!(var_name, "x");
+        }
+        _ => unreachable!(),
+    }
+
+    let if_stmt = &stmts[1];
+    match if_stmt {
+        ast::Stmt::IfStmt {
+            condition,
+            body,
+            else_stmt,
+        } => {
+            assert!(matches!(
+                &**condition,
+                ast::Expr::InfixOp {
+                    op: T![<],
+                    lhs: _lhs,
+                    rhs: _rhs,
+                }
+            ));
+            assert_eq!(body.len(), 2);
+            let x_assignment = &body[0];
+            match x_assignment {
+                ast::Stmt::Assignment { var_name, .. } => assert_eq!(var_name, "x"),
+                _ => unreachable!(),
+            }
+            let y_assignment = &body[1];
+            match y_assignment {
+                ast::Stmt::Assignment { var_name, .. } => assert_eq!(var_name, "y"),
+                _ => unreachable!(),
+            }
+
+            let else_stmt = match else_stmt {
+                Some(stmt) => &**stmt,
+                None => unreachable!(),
+            };
+
+            match else_stmt {
+                ast::Stmt::IfStmt {
+                    condition,
+                    body,
+                    else_stmt,
+                } => {
+                    assert!(matches!(
+                        &**condition,
+                        ast::Expr::InfixOp {
+                            op: T![<],
+                            lhs: _lhs,
+                            rhs: _rhs,
+                        }
+                    ));
+                    assert_eq!(body.len(), 2);
+                    let let_i = &body[0];
+                    match let_i {
+                        ast::Stmt::Let { var_name, .. } => assert_eq!(var_name, "i"),
+                        _ => unreachable!(),
+                    }
+                    let x_assignment = &body[1];
+                    match x_assignment {
+                        ast::Stmt::Assignment { var_name, .. } => assert_eq!(var_name, "x"),
+                        _ => unreachable!(),
+                    }
+
+                    let else_stmt = match else_stmt {
+                        Some(stmt) => &**stmt,
+                        None => unreachable!(),
+                    };
+
+                    let stmts = match else_stmt {
+                        ast::Stmt::Block { stmts } => stmts,
+                        _ => unreachable!(),
+                    };
+                    assert_eq!(stmts.len(), 1);
+
+                    let x_assignment = &stmts[0];
+                    match x_assignment {
+                        ast::Stmt::Assignment { var_name, .. } => assert_eq!(var_name, "x"),
+                        _ => unreachable!(),
+                    }
+                }
+                _ => unreachable!(),
+            };
+        }
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn parse_struct() {
+    fn parse(input: &str) -> ast::Item {
+        let mut parser = Parser::new(input);
+        parser.item()
+    }
+
+    let item = parse(
+        unindent(
+            r#"
+        struct Foo<T, U> {
+            x String,
+            bar Bar<Baz<T>, U>
+        }
+    "#,
+        )
+        .as_str(),
+    );
+
+    match item {
+        ast::Item::Struct { name, members } => {
+            assert_eq!(
+                name,
+                ast::Type {
+                    name: "Foo".to_string(),
+                    generics: vec![
+                        ast::Type {
+                            name: "T".to_string(),
+                            generics: vec![],
+                        },
+                        ast::Type {
+                            name: "U".to_string(),
+                            generics: vec![],
+                        }
+                    ],
+                }
+            );
+            assert_eq!(members.len(), 2);
+            let (bar, bar_type) = &members[1];
+            assert_eq!(bar, "bar");
+            assert_eq!(
+                bar_type,
+                &ast::Type {
+                    name: "Bar".to_string(),
+                    generics: vec![
+                        ast::Type {
+                            name: "Baz".to_string(),
+                            generics: vec![ast::Type {
+                                name: "T".to_string(),
+                                generics: vec![],
+                            }],
+                        },
+                        ast::Type {
+                            name: "U".to_string(),
+                            generics: vec![],
+                        }
+                    ],
+                }
+            );
+        }
+        _ => unreachable!(),
+    };
+}
+
+#[test]
+fn parse_function() {
+    fn parse(input: &str) -> ast::Item {
+        let mut parser = Parser::new(input);
+        parser.item()
+    }
+
+    let item = parse(
+        unindent(
+            r#"
+        fn wow_we_did_it(x String, bar Bar<Baz<T>, U>) {
+            let x = 7 + sin(y);
+            {
+                x = 3;
+                if (bar < 3) {
+                    x = x + 1;
+                    y = 3 * x;
+                } else if (bar < 2) {
+                    let i = 2!;
+                    x = x + i;
+                } else {
+                    x = 1;
+                }
+            }
+        }
+    "#,
+        )
+        .as_str(),
+    );
+
+    match item {
+        ast::Item::Function {
+            name,
+            parameters,
+            body,
+            return_type,
+            return_stmt,
+        } => {
+            assert_eq!(name, "wow_we_did_it");
+            assert_eq!(parameters.len(), 2);
+            let (bar, bar_type) = &parameters[1];
+            assert_eq!(bar, "bar");
+            assert_eq!(
+                bar_type,
+                &ast::Type {
+                    name: "Bar".to_string(),
+                    generics: vec![
+                        ast::Type {
+                            name: "Baz".to_string(),
+                            generics: vec![ast::Type {
+                                name: "T".to_string(),
+                                generics: vec![],
+                            }],
+                        },
+                        ast::Type {
+                            name: "U".to_string(),
+                            generics: vec![],
+                        }
+                    ],
+                }
+            );
+            assert_eq!(body.len(), 2);
+        }
+        _ => unreachable!(),
+    };
+}
+
+#[test]
+fn parse_function_with_return() {
+    fn parse(input: &str) -> ast::Item {
+        let mut parser = Parser::new(input);
+        parser.item()
+    }
+
+    let item = parse(
+        unindent(
+            r#"
+        fn wow_we_did_it(x String, bar Bar<Baz<T>, U>) -> String {
+            let x = 7 + sin(y);
+            {
+                x = 3;
+                if (bar < 3) {
+                    x = x + 1;
+                    y = 3 * x;
+                } else if (bar < 2) {
+                    let i = 2!;
+                    x = x + i;
+                } else {
+                    x = 1;
+                }
+            }
+            return "hello, Alaska!"
+        }
+    "#,
+        )
+        .as_str(),
+    );
+
+    match item {
+        ast::Item::Function {
+            name,
+            parameters,
+            body,
+            return_type,
+            return_stmt,
+        } => {
+            assert_eq!(name, "wow_we_did_it");
+            assert_eq!(parameters.len(), 2);
+            assert_eq!(
+                return_type,
+                Some(Box::new(ast::Type {
+                    name: "String".to_string(),
+                    generics: vec![],
+                }))
+            );
+
+            let (bar, bar_type) = &parameters[1];
+            assert_eq!(bar, "bar");
+            assert_eq!(
+                bar_type,
+                &ast::Type {
+                    name: "Bar".to_string(),
+                    generics: vec![
+                        ast::Type {
+                            name: "Baz".to_string(),
+                            generics: vec![ast::Type {
+                                name: "T".to_string(),
+                                generics: vec![],
+                            }],
+                        },
+                        ast::Type {
+                            name: "U".to_string(),
+                            generics: vec![],
+                        }
+                    ],
+                }
+            );
+            assert_eq!(body.len(), 3);
+            assert_eq!(
+                body.last(),
+                Some(&ast::Stmt::Return {
+                    value: Box::new(ast::Expr::Literal(ast::Lit::Str("hello, Alaska!".to_string())))
+                })
+            );
+        }
+        _ => unreachable!(),
+    };
+}
+
+#[test]
+fn parse_file() {
+    fn parse(input: &str) -> Vec<ast::Item> {
+        let mut parser = Parser::new(input);
+        parser.file()
+    }
+
+    let items = parse(
+        unindent(
+            r#"
+        fn wow_we_did_it(x String, bar Bar<Baz<T>, U>) {
+            let x = 7 + sin(y);
+            {
+                x = 3;
+                if (bar < 3) {
+                    x = x + 1;
+                    y = 3 * x;
+                } else if (bar < 2) {
+                    let i = 2!;
+                    x = x + i;
+                } else {
+                    x = 1;
+                }
+            }
+        }
+
+        struct Foo<T, U> {
+            x String,
+            bar Bar<Baz<T>, U>
+        }
+    "#,
+        )
+        .as_str(),
+    );
+
+    let function = &items[0];
+    match function {
+        ast::Item::Function {
+            name,
+            parameters,
+            body,
+            return_type,
+            return_stmt,
+        } => {
+            assert_eq!(name, "wow_we_did_it");
+            assert_eq!(parameters.len(), 2);
+            assert_eq!(body.len(), 2);
+        }
+        _ => unreachable!(),
+    };
+
+    let struct_ = &items[1];
+    match struct_ {
+        ast::Item::Struct { name, members } => {
+            assert_eq!(
+                name,
+                &ast::Type {
+                    name: "Foo".to_string(),
+                    generics: vec![
+                        ast::Type {
+                            name: "T".to_string(),
+                            generics: vec![],
+                        },
+                        ast::Type {
+                            name: "U".to_string(),
+                            generics: vec![],
+                        }
+                    ],
+                }
+            );
+            assert_eq!(members.len(), 2);
+        }
+        _ => unreachable!(),
+    };
 }
