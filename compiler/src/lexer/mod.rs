@@ -2,7 +2,6 @@ mod rules;
 mod token;
 
 use crate::T;
-
 pub use token::{Span, Token, TokenKind};
 
 use self::rules::{unambiguous_single_char, Rule};

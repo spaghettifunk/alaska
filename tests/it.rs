@@ -1,5 +1,5 @@
 use compiler::{
-    lexer::*,
+    lexer::Lexer,
     parser::{ast, Parser},
     T,
 };
@@ -117,14 +117,14 @@ fn function() {
     let input = r#"
         // tests stuff
         fn test(var Type, var2_ bool) -> bool {
-            let x = "String content \" test" + 7 / 27.3e-2^4
-            let chars = x.chars()
+            let x = "String content \" test" + 7 / 27.3e-2^4;
+            let chars = x.chars();
             if let c = chars.next() {
-                x = x + c
+                x = x + c;
             } else if !var2_ {
-                x = x + ","
+                x = x + ",";
             }
-            return true
+            return true;
         }
         /* end of file */
     "#;
@@ -138,27 +138,27 @@ fn function() {
         // function signature
         T![fn], T![ident], T!['('], 
             T![ident], T![ident], T![,], 
-            T![ident], T![ident], 
-        T![')'], T![->], T![ident], T!['{'], 
+            T![ident], T![bool], 
+        T![')'], T![->], T![bool], T!['{'], 
             // `x` assignment
             T![let], T![ident], T![=], T![string], T![+], T![int], 
-                T![/], T![float], T![^], T![int], 
+                T![/], T![float], T![^], T![int], T![;],
             // `chars` assignment
             T![let], T![ident], T![=], T![ident], 
-                T![.], T![ident], T!['('], T![')'],
+                T![.], T![ident], T!['('], T![')'], T![;],
             // if
             T![if], T![let], T![ident], T![=], T![ident], T![.], T![ident], T!['('],T![')'], 
             T!['{'], 
                 // `x` re-assignment
                 T![ident], T![=], 
-                    T![ident], T![+], T![ident],
+                    T![ident], T![+], T![ident], T![;],
             // else if
             T!['}'], T![else], T![if], T![!], T![ident], T!['{'], 
                 // `x` re-assignment
                 T![ident], T![=], 
-                    T![ident], T![+], T![string], 
+                    T![ident], T![+], T![string], T![;],
             T!['}'], // end if
-            T![return], T![true],
+            T![return], T![true],T![;],
         T!['}'], // end fn
         T![block comment], // block comment
         T![EOF],
@@ -172,7 +172,7 @@ fn struct_def() {
         struct Foo<T> {
             bar Bar<T>
         }
-        let x = 'a'
+        let x = 'a';
     "#;
     let input = unindent(input);
     let input = input.as_str();
@@ -189,7 +189,7 @@ fn struct_def() {
             T![ident], 
                 T![ident], T![<], T![ident], T![>], 
         T!['}'], // end struct
-        T![let], T![ident], T![=], T![char],
+        T![let], T![ident], T![=], T![char], T![;], // let statement
         T![EOF],
     ]);
     let bar = tokens[6];
@@ -496,7 +496,7 @@ fn parse_struct() {
         unindent(
             r#"
         struct Foo<T, U> {
-            x String,
+            x String
             bar Bar<Baz<T>, U>
         }
     "#,

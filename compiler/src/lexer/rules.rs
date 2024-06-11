@@ -334,6 +334,10 @@ pub(crate) fn get_rules() -> Vec<Rule> {
             matches: |input| match_regex(input, &CHAR_REGEX),
         },
         Rule {
+            kind: T![bool],
+            matches: |input| match_keyword(input, "bool"),
+        },
+        Rule {
             kind: T![ident],
             matches: |input| match_regex(input, &IDENTIFIER_REGEX),
         },

@@ -11,3 +11,9 @@ compiler = { path = "compiler" }
 
 [dev-dependencies]
 unindent = "0.2.3"
+criterion = "0.5.1"
+
+[[bench]]
+name = "main"
+path = "compiler/src/benches/main.rs"
+harness = false

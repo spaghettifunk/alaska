@@ -88,5 +88,5 @@ where
             "Expected to consume `{}`, but found `{}`",
             expected, token.kind
         );
-    } 
+    }
 }

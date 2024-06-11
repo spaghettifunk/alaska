@@ -5,7 +5,7 @@ use std::{
 
 #[derive(Debug, PartialEq, Eq, Hash, Copy, Clone)]
 pub enum TokenKind {
-    // Literals
+    // Literals - 82
     Int,
     String,
     Char,
@@ -41,7 +41,7 @@ pub enum TokenKind {
     And,
     Plus,
     Minus,
-    Mul,
+    Star,
     Slash,
     ShiftRight,
     ShiftLeft,
@@ -87,6 +87,7 @@ pub enum TokenKind {
     KeywordContinue,
     KeywordNil,
     KeywordPackage,
+    KeywordAs,
     Error,
     Whitespace,
     Eof,
@@ -101,7 +102,7 @@ macro_rules! T {
         $crate::lexer::TokenKind::Minus
     };
     [*] => {
-        $crate::lexer::TokenKind::Mul
+        $crate::lexer::TokenKind::Star
     };
     [/] => {
         $crate::lexer::TokenKind::Slash
@@ -337,6 +338,9 @@ macro_rules! T {
     [error] => {
         $crate::lexer::TokenKind::Error
     };
+    [as] => {
+        $crate::lexer::TokenKind::KeywordAs
+    };
     [ws] => {
         $crate::lexer::TokenKind::Whitespace
     };
@@ -411,6 +415,7 @@ impl fmt::Display for TokenKind {
                 T![continue] => "continue",
                 T![nil] => "nil",
                 T![type] => "Type",
+                T![as] => "as",
                 T![=>] => "=>",
                 T![->] => "->",
                 // Operators
