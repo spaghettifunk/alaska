@@ -137,9 +137,9 @@ expressionStmt ::= expression
 incDecStmt ::= expression ( '++' | '--' )
 assignment ::= expressionList assign_op expressionList
 assign_op ::= ( add_op | mul_op )? '='
-forStmt  ::= 'for' '(' ( condition | forClause | rangeClause )? ')' block
+forStmt  ::= 'for' ( condition | forClause | rangeClause )? block
 condition ::= expression
-forClause ::= initStmt? ';' condition? ';' postStmt?
+forClause ::= '(' initStmt? ';' condition? ';' postStmt? ')'
 initStmt ::= simpleStmt
 postStmt ::= simpleStmt
 rangeClause ::= ( expressionList '=' )? 'range' expression

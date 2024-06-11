@@ -1,0 +1,9 @@
+[package]
+name = "compiler"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+regex = "1"
+lazy_static = "1"
+logos = "0.14.0"
