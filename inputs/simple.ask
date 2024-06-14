@@ -1,4 +1,10 @@
-package main
+package main;
 
-use fmt
-use test
+use fmt;
+use test;
+
+fn main() -> int {
+    let t = fmt.random.lekker.Println("hello");
+    return 0;
+}
+

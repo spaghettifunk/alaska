@@ -57,14 +57,14 @@ where
     I: Iterator<Item = Token>,
 {
     #[inline]
-    pub fn expression(&mut self) -> Result<ast::Expr> {
+    pub fn expression(&mut self) -> Result<ast::Stmt> {
         match self.parse_expression(0) {
             Ok(expr) => return Ok(expr),
             Err(found) => return Err(found),
         }
     }
 
-    fn parse_expr_fn_call(&mut self, fn_name: String) -> Result<ast::Expr> {
+    fn parse_expr_fn_call(&mut self, fn_name: String) -> Result<ast::Stmt> {
         let mut args = Vec::new();
         self.consume(T!['(']);
         while !self.at(T![')']) {
@@ -76,24 +76,24 @@ where
         }
         self.consume(T![')']);
 
-        Ok(ast::Expr::FnCall {
+        Ok(ast::Stmt::FnCall {
             function: fn_name,
             args,
         })
     }
 
-    fn parse_exp_array_access(&mut self, array: String) -> Result<ast::Expr> {
+    fn parse_exp_array_access(&mut self, array: String) -> Result<ast::Stmt> {
         self.consume(T!['[']);
         let index = self.expression();
         self.consume(T![']']);
 
-        Ok(ast::Expr::ArrayAccess {
+        Ok(ast::Stmt::ArrayAccess {
             array,
             index: Box::new(index?),
         })
     }
 
-    fn parse_expression(&mut self, binding_power: u8) -> Result<ast::Expr> {
+    fn parse_expression(&mut self, binding_power: u8) -> Result<ast::Stmt> {
         let next = self.peek();
         let mut lhs = match next {
             // `lit @ T![int]` (and similar) gives a name to the kind that is matched, so that I can use it again in the second match.
@@ -132,7 +132,7 @@ where
                     ),
                     _ => unreachable!(),
                 };
-                Ok(ast::Expr::Literal(expr_lit))
+                Ok(ast::Stmt::Literal(expr_lit))
             }
             T![ident] => {
                 let name = {
@@ -151,13 +151,13 @@ where
                     self.consume(T![.]);
 
                     let expr = self.expression();
-                    Ok(ast::Expr::StructAccess {
+                    Ok(ast::Stmt::StructAccess {
                         struct_name: name,
                         field: Box::new(expr?),
                     })
                 } else {
                     // plain identifier
-                    Ok(ast::Expr::Identifier(name))
+                    Ok(ast::Stmt::Identifier(name))
                 }
             }
             T!['('] => {
@@ -179,14 +179,14 @@ where
                     }
                 }
                 self.consume(T![']']);
-                Ok(ast::Expr::Array { elements })
+                Ok(ast::Stmt::Array { elements })
             }
             op @ T![+] | op @ T![-] | op @ T![!] => {
                 self.consume(op);
                 let ((), right_binding_power) = op.prefix_binding_power();
                 let expr = self.parse_expression(right_binding_power);
 
-                Ok(ast::Expr::PrefixOp {
+                Ok(ast::Stmt::PrefixOp {
                     op,
                     expr: Box::new(expr?),
                 })
@@ -194,7 +194,7 @@ where
             T![nil] => {
                 self.consume(T![nil]);
 
-                Ok(ast::Expr::Literal(ast::Lit::Nil()))
+                Ok(ast::Stmt::Literal(ast::Lit::Nil()))
             }
             found => {
                 return Err(ParseError::UnexpectedToken {
@@ -295,7 +295,7 @@ where
                 self.consume(op);
                 // no recursive call here, because we have already
                 // parsed our operand `lhs`
-                lhs = Ok(ast::Expr::PostfixOp {
+                lhs = Ok(ast::Stmt::PostfixOp {
                     op,
                     expr: Box::new(lhs?),
                 });
@@ -312,7 +312,7 @@ where
 
                 self.consume(op);
                 let rhs = self.parse_expression(right_binding_power);
-                lhs = Ok(ast::Expr::InfixOp {
+                lhs = Ok(ast::Stmt::InfixOp {
                     op,
                     lhs: Box::new(lhs?),
                     rhs: Box::new(rhs?),
@@ -335,52 +335,52 @@ mod tests {
 
     #[test]
     fn parse_expression() {
-        fn parse(input: &str) -> ast::Expr {
+        fn parse(input: &str) -> ast::Stmt {
             let mut parser = Parser::new(input);
             parser.expression().unwrap()
         }
 
         // Weird spaces are to test that whitespace gets filtered out
         let expr = parse("42");
-        assert_eq!(expr, ast::Expr::Literal(ast::Lit::Int(42)));
+        assert_eq!(expr, ast::Stmt::Literal(ast::Lit::Int(42)));
         let expr = parse("  2.7768");
-        assert_eq!(expr, ast::Expr::Literal(ast::Lit::Float(2.7768)));
+        assert_eq!(expr, ast::Stmt::Literal(ast::Lit::Float(2.7768)));
         let expr = parse(r#""I am a String!""#);
-        assert_eq!(expr, ast::Expr::Literal(ast::Lit::Str("I am a String!".to_string())));
+        assert_eq!(expr, ast::Stmt::Literal(ast::Lit::Str("I am a String!".to_string())));
         let expr = parse("foo");
-        assert_eq!(expr, ast::Expr::Identifier("foo".to_string()));
+        assert_eq!(expr, ast::Stmt::Identifier("foo".to_string()));
         let expr = parse("bar (  x, 2)");
         assert_eq!(
             expr,
-            ast::Expr::FnCall {
+            ast::Stmt::FnCall {
                 function: "bar".to_string(),
                 args: vec![
-                    ast::Expr::Identifier("x".to_string()),
-                    ast::Expr::Literal(ast::Lit::Int(2)),
+                    ast::Stmt::Identifier("x".to_string()),
+                    ast::Stmt::Literal(ast::Lit::Int(2)),
                 ],
             }
         );
         let expr = parse("!  is_visible");
         assert_eq!(
             expr,
-            ast::Expr::PrefixOp {
+            ast::Stmt::PrefixOp {
                 op: T![!],
-                expr: Box::new(ast::Expr::Identifier("is_visible".to_string())),
+                expr: Box::new(ast::Stmt::Identifier("is_visible".to_string())),
             }
         );
         let expr = parse("(-13)");
         assert_eq!(
             expr,
-            ast::Expr::PrefixOp {
+            ast::Stmt::PrefixOp {
                 op: T![-],
-                expr: Box::new(ast::Expr::Literal(ast::Lit::Int(13))),
+                expr: Box::new(ast::Stmt::Literal(ast::Lit::Int(13))),
             }
         );
     }
 
     #[test]
     fn parse_binary_expressions() {
-        fn parse(input: &str) -> ast::Expr {
+        fn parse(input: &str) -> ast::Stmt {
             let mut parser = Parser::new(input);
             parser.expression().unwrap()
         }
@@ -430,7 +430,7 @@ mod tests {
 
     #[test]
     fn parse_postfix_op() {
-        fn parse(input: &str) -> ast::Expr {
+        fn parse(input: &str) -> ast::Stmt {
             let mut parser = Parser::new(input);
             parser.expression().unwrap()
         }

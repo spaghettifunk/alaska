@@ -60,7 +60,7 @@ where
             );
             let parameter_name = self.text(parameter_ident).to_string();
             self.consume(T![:]);
-            let parameter_type = self.type_();
+            let parameter_type = self.type_(&None);
             parameters.push((parameter_name, parameter_type));
             if self.at(T![,]) {
                 self.consume(T![,]);
@@ -72,7 +72,7 @@ where
         let mut return_type: Option<Box<Type>> = None;
         if self.at(T![->]) {
             self.consume(T![->]);
-            return_type = Some(Box::new(self.type_()));
+            return_type = Some(Box::new(self.type_(&None)));
         }
 
         assert!(self.at(T!['{']), "Expected a block after function header");
@@ -104,6 +104,7 @@ where
 
     fn parse_struct(&mut self) -> Result<ast::Stmt> {
         self.consume(T![struct]);
+
         let ident = self.next().expect("Expected identifier after `struct`");
         assert_eq!(
             ident.kind,
@@ -111,11 +112,22 @@ where
             "Expected identifier after `struct`, but found `{}`",
             ident.kind
         );
+
         let name = self.text(ident).to_string();
-        let st_type = self.type_();
+        let st_type = self.type_(&Some(name.clone()));
+
+        if !self.at(T!['{']) {
+            return Err(ParseError::UnexpectedToken {
+                found: self.peek(),
+                expected: vec![T!['{']],
+                position: self.position(),
+            });
+        }
+
+        self.consume(T!['{']);
 
         let mut members = Vec::new();
-        self.consume(T!['{']);
+
         while !self.at(T!['}']) {
             let member_ident = self.next().expect(
                 "Tried to parse struct member, 
@@ -128,12 +140,13 @@ where
                 member_ident.kind
             );
             let member_name = self.text(member_ident).to_string();
-            let member_type = self.type_();
+            let member_type = self.type_(&None);
             members.push((member_name, member_type));
             if self.at(T![,]) {
                 self.consume(T![,]);
             }
         }
+
         self.consume(T!['}']);
 
         Ok(ast::Stmt::Struct {
@@ -143,15 +156,19 @@ where
         })
     }
 
-    fn type_(&mut self) -> ast::Type {
-        let ident = self.next().expect("Tried to parse type, but there were no more tokens");
-        assert_eq!(
-            ident.kind,
-            T![ident],
-            "Expected identifier at start of type, but found `{}`",
-            ident.kind
-        );
-        let name = self.text(ident).to_string();
+    fn type_(&mut self, opt_name: &Option<String>) -> ast::Type {
+        let mut int_name: Option<String> = None;
+        if opt_name.is_none() {
+            let ident = self.next().expect("Tried to parse type, but there were no more tokens");
+            assert_eq!(
+                ident.kind,
+                T![ident],
+                "Expected identifier at start of type, but found `{}`",
+                ident.kind
+            );
+            let val = self.text(ident).to_string();
+            int_name = Some(val);
+        }
 
         let mut generics = Vec::new();
 
@@ -159,7 +176,7 @@ where
             self.consume(T![<]);
             while !self.at(T![>]) {
                 // Generic parameters are also types
-                let generic = self.type_();
+                let generic = self.type_(&int_name);
                 generics.push(generic);
                 if self.at(T![,]) {
                     self.consume(T![,]);
@@ -168,7 +185,10 @@ where
             self.consume(T![>]);
         }
 
-        ast::Type { name, generics }
+        ast::Type {
+            name: int_name.unwrap(),
+            generics,
+        }
     }
 
     fn parse_let(&mut self) -> Result<ast::Stmt> {
@@ -280,7 +300,7 @@ where
         Ok(ast::Stmt::Block { stmts })
     }
 
-    fn parse_fn_call(&mut self, name: String) -> Result<ast::Expr> {
+    fn parse_fn_call(&mut self, name: String) -> Result<ast::Stmt> {
         let mut args = Vec::new();
         self.consume(T!['(']);
         while !self.at(T![')']) {
@@ -291,14 +311,14 @@ where
             }
         }
         self.consume(T![')']);
-        Ok(ast::Expr::FnCall { function: name, args })
+        Ok(ast::Stmt::FnCall { function: name, args })
     }
 
-    fn parse_assignment(&mut self) -> Result<ast::Stmt> {
-        let ident = self.next().unwrap();
-        let name = self.text(ident).to_string();
+    fn parse_assignment(&mut self, name: String) -> Result<ast::Stmt> {
         self.consume(T![=]);
-        let value = self.statement();
+
+        let value = self.expression();
+
         self.consume(T![;]);
 
         Ok(ast::Stmt::Assignment {
@@ -309,32 +329,21 @@ where
 
     fn parse_dot(&mut self, struct_name: String) -> Result<ast::Stmt> {
         self.consume(T![.]);
-
-        let ident = self.next().unwrap();
-        let ident_name = self.text(ident).to_string();
-
-        if self.at(T!['(']) {
-            let fn_call = self.parse_fn_call(ident_name);
-            Ok(ast::Stmt::StructAccess {
-                struct_name,
-                field: Box::new(fn_call?),
-            })
-        } else if self.at(T![.]) {
-            self.consume(T![.]);
-            let expr = self.expression();
-            Ok(ast::Stmt::StructAccess {
-                struct_name,
-                field: Box::new(expr?),
-            })
-        } else {
-            Ok(ast::Stmt::Expr(ast::Expr::Identifier(ident_name)))
-        }
+        let stmt = self.statement();
+        Ok(ast::Stmt::StructAccess {
+            struct_name,
+            field: Box::new(stmt?),
+        })
     }
 
-    fn parse_stmt_ident(&mut self, name: String) -> Result<ast::Stmt> {
-        match self.peek() {
+    fn parse_ident(&mut self) -> Result<ast::Stmt> {
+        let ident = self.next().unwrap();
+        let name = self.text(ident).to_string();
+
+        let next = self.peek();
+        match next {
             T![=] => {
-                let assignment = self.parse_assignment();
+                let assignment = self.parse_assignment(name);
                 assignment
             }
             T![.] => {
@@ -343,7 +352,7 @@ where
             }
             T!['('] => {
                 let fn_call = self.parse_fn_call(name);
-                Ok(ast::Stmt::Expr(fn_call?))
+                Ok(fn_call?)
             }
             found => {
                 return Err(ParseError::UnexpectedToken {
@@ -360,17 +369,15 @@ where
         let ast = match next {
             T![int] | T![float] | T![string] | T![bool] | T![char] => {
                 let lit = self.expression();
-                Ok(ast::Stmt::Expr(lit?))
+                Ok(lit?)
             }
             T![let] => {
                 let let_stmt = self.parse_let();
                 let_stmt
             }
             T![ident] => {
-                let ident = self.next().unwrap();
-                let name = self.text(ident).to_string();
-
-                self.parse_stmt_ident(name)
+                let ident = self.parse_ident();
+                ident
             }
             T![return] => {
                 let ret = self.parse_return();
@@ -399,7 +406,7 @@ where
             }
             T![nil] => {
                 self.consume(T![nil]);
-                Ok(ast::Stmt::Expr(ast::Expr::Literal(ast::Lit::Nil())))
+                Ok(ast::Stmt::Literal(ast::Lit::Nil()))
             }
             found => {
                 return Err(ParseError::UnexpectedToken {
@@ -637,7 +644,7 @@ mod tests {
             unindent(
                 r#"
     {
-        let x = 7 + sin(y);
+       let x = 7 + sin(y);
         {
             x = 3;
             if (bar < 3) {
@@ -693,7 +700,7 @@ mod tests {
             } => {
                 assert!(matches!(
                     &**condition,
-                    ast::Expr::InfixOp {
+                    ast::Stmt::InfixOp {
                         op: T![<],
                         lhs: _lhs,
                         rhs: _rhs,
@@ -724,7 +731,7 @@ mod tests {
                     } => {
                         assert!(matches!(
                             &**condition,
-                            ast::Expr::InfixOp {
+                            ast::Stmt::InfixOp {
                                 op: T![<],
                                 lhs: _lhs,
                                 rhs: _rhs,
@@ -791,11 +798,11 @@ mod tests {
                 assert_eq!(iterator, "x");
                 assert_eq!(
                     range,
-                    Box::new(ast::Expr::Array {
+                    Box::new(ast::Stmt::Array {
                         elements: vec![
-                            ast::Expr::Literal(ast::Lit::Int(0)),
-                            ast::Expr::Literal(ast::Lit::Int(1)),
-                            ast::Expr::Literal(ast::Lit::Int(2)),
+                            ast::Stmt::Literal(ast::Lit::Int(0)),
+                            ast::Stmt::Literal(ast::Lit::Int(1)),
+                            ast::Stmt::Literal(ast::Lit::Int(2)),
                         ]
                     })
                 );
@@ -803,64 +810,6 @@ mod tests {
             }
             _ => unreachable!(),
         }
-    }
-
-    #[test]
-    fn parse_struct() {
-        fn parse(input: &str) -> ast::Stmt {
-            let mut parser = Parser::new(input);
-            parser.parse_struct().unwrap()
-        }
-
-        let item = parse(
-            unindent(
-                r#"
-        struct Foo<T, U> {
-            x String
-            bar Bar<Baz<T>, U>
-        }
-    "#,
-            )
-            .as_str(),
-        );
-
-        match item {
-            ast::Stmt::Struct { name, members, type_ } => {
-                assert_eq!(name, "Foo");
-                assert_eq!(members.len(), 2);
-                let (x, x_type) = &members[0];
-                assert_eq!(x, "x");
-                assert_eq!(
-                    x_type,
-                    &ast::Type {
-                        name: "String".to_string(),
-                        generics: vec![],
-                    }
-                );
-                let (bar, bar_type) = &members[1];
-                assert_eq!(bar, "bar");
-                assert_eq!(
-                    bar_type,
-                    &ast::Type {
-                        name: "Bar".to_string(),
-                        generics: vec![
-                            ast::Type {
-                                name: "Baz".to_string(),
-                                generics: vec![ast::Type {
-                                    name: "T".to_string(),
-                                    generics: vec![],
-                                }],
-                            },
-                            ast::Type {
-                                name: "U".to_string(),
-                                generics: vec![],
-                            }
-                        ],
-                    }
-                );
-            }
-            _ => unreachable!(),
-        };
     }
 
     #[test]
@@ -873,7 +822,7 @@ mod tests {
         let item = parse(
             unindent(
                 r#"
-        fn wow_we_did_it(x String, bar Bar<Baz<T>, U>) {
+        fn wow_we_did_it(x: String, bar: Bar<Baz<T>, U>) {
             let x = 7 + sin(y);
             {
                 x = 3;
@@ -940,7 +889,7 @@ mod tests {
         let item = parse(
             unindent(
                 r#"
-        fn wow_we_did_it(x String, bar Bar<Baz<T>, U>) -> String {
+        fn wow_we_did_it(x: String, bar: Bar<Baz<T>, U>) -> string {
             let x = 7 + sin(y);
             {
                 x = 3;
@@ -954,7 +903,7 @@ mod tests {
                     x = 1;
                 }
             }
-            return "hello, Alaska!"
+            return "hello, Alaska!";
         }
     "#,
             )
@@ -974,7 +923,7 @@ mod tests {
                 assert_eq!(
                     return_type,
                     Some(Box::new(ast::Type {
-                        name: "String".to_string(),
+                        name: "string".to_string(),
                         generics: vec![],
                     }))
                 );
@@ -1004,9 +953,7 @@ mod tests {
                 assert_eq!(
                     body.last(),
                     Some(&ast::Stmt::Return {
-                        value: Box::new(ast::Stmt::Expr(ast::Expr::Literal(ast::Lit::Str(
-                            "hello, Alaska!".to_string()
-                        ))))
+                        value: Box::new(ast::Stmt::Literal(ast::Lit::Str("hello, Alaska!".to_string())))
                     })
                 );
             }
@@ -1015,7 +962,81 @@ mod tests {
     }
 
     #[test]
-    fn parse_file() {
+    fn parse_struct() {
+        fn parse(input: &str) -> ast::Stmt {
+            let mut parser = Parser::new(input);
+            parser.parse_struct().unwrap()
+        }
+
+        let item = parse(
+            unindent(
+                r#"
+        struct Foo<T, U> {
+            x String,
+            bar Bar<Baz<T>, U>
+        }
+    "#,
+            )
+            .as_str(),
+        );
+
+        match item {
+            ast::Stmt::Struct { name, members, type_ } => {
+                assert_eq!(name, "Foo");
+                assert_eq!(members.len(), 2);
+                let (x, x_type) = &members[0];
+                assert_eq!(
+                    type_,
+                    ast::Type {
+                        name: "Foo".to_string(),
+                        generics: vec![
+                            ast::Type {
+                                name: "T".to_string(),
+                                generics: vec![],
+                            },
+                            ast::Type {
+                                name: "U".to_string(),
+                                generics: vec![],
+                            }
+                        ],
+                    }
+                );
+                assert_eq!(x, "x");
+                assert_eq!(
+                    x_type,
+                    &ast::Type {
+                        name: "String".to_string(),
+                        generics: vec![],
+                    }
+                );
+                let (bar, bar_type) = &members[1];
+                assert_eq!(bar, "bar");
+                assert_eq!(
+                    bar_type,
+                    &ast::Type {
+                        name: "Bar".to_string(),
+                        generics: vec![
+                            ast::Type {
+                                name: "Baz".to_string(),
+                                generics: vec![ast::Type {
+                                    name: "T".to_string(),
+                                    generics: vec![],
+                                }],
+                            },
+                            ast::Type {
+                                name: "U".to_string(),
+                                generics: vec![],
+                            }
+                        ],
+                    }
+                );
+            }
+            _ => unreachable!(),
+        };
+    }
+
+    #[test]
+    fn parse_input() {
         fn parse(input: &str) -> ast::SourceFile {
             let mut parser = Parser::new(input);
             parser.parse_input(input).unwrap()
@@ -1026,7 +1047,7 @@ mod tests {
                 r#"
         package main;
 
-        fn wow_we_did_it(x String, bar Bar<Baz<T>, U>) {
+        fn wow_we_did_it(x: string, bar: Bar<Baz<T>, U>) {
             let x = 7 + sin(y);
             {
                 x = 3;

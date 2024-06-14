@@ -3,36 +3,36 @@ use crate::lexer::TokenKind;
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Expr {
+pub enum Stmt {
     Literal(Lit),
     Identifier(String),
     FnCall {
         function: String,
-        args: Vec<Expr>,
+        args: Vec<Stmt>,
     },
     Array {
-        elements: Vec<Expr>,
+        elements: Vec<Stmt>,
     },
     ArrayAccess {
         array: String,
-        index: Box<Expr>,
+        index: Box<Stmt>,
     },
     StructAccess {
         struct_name: String,
-        field: Box<Expr>,
+        field: Box<Stmt>,
     },
     PrefixOp {
         op: TokenKind,
-        expr: Box<Expr>,
+        expr: Box<Stmt>,
     },
     InfixOp {
         op: TokenKind,
-        lhs: Box<Expr>,
-        rhs: Box<Expr>,
+        lhs: Box<Stmt>,
+        rhs: Box<Stmt>,
     },
     PostfixOp {
         op: TokenKind,
-        expr: Box<Expr>,
+        expr: Box<Stmt>,
     },
     Comment {
         text: String,
@@ -40,11 +40,6 @@ pub enum Expr {
     BlockComment {
         text: String,
     },
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Stmt {
-    Expr(Expr),
     Defer {
         stmt: Box<Stmt>,
     },
@@ -57,34 +52,26 @@ pub enum Stmt {
         value: Box<Stmt>,
     },
     IfStmt {
-        condition: Box<Expr>,
+        condition: Box<Stmt>,
         body: Vec<Stmt>,
         else_stmt: Option<Box<Stmt>>,
     },
     RangeStmt {
         iterator: String,
-        range: Box<Expr>,
+        range: Box<Stmt>,
         body: Vec<Stmt>,
-    },
-    StructAccess {
-        struct_name: String,
-        field: Box<Expr>,
-    },
-    MemberAccess {
-        object: String,
-        member: Box<Expr>,
     },
     FunctionCall {
         fn_name: String,
-        args: Vec<Expr>,
+        args: Vec<Stmt>,
     },
     WhileStmt {
-        condition: Box<Expr>,
+        condition: Box<Stmt>,
         body: Vec<Stmt>,
     },
     MatchStmt {
-        value: Box<Expr>,
-        arms: Vec<(Expr, Vec<Stmt>)>,
+        value: Box<Stmt>,
+        arms: Vec<(Stmt, Vec<Stmt>)>,
     },
     Block {
         stmts: Vec<Stmt>,
@@ -157,39 +144,6 @@ impl fmt::Display for Type {
     }
 }
 
-impl fmt::Display for Expr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Expr::Literal(lit) => write!(f, "{}", lit),
-            Expr::Identifier(name) => write!(f, "{}", name),
-            Expr::FnCall {
-                function: fn_name,
-                args,
-            } => {
-                write!(f, "{}(", fn_name)?;
-                for arg in args {
-                    write!(f, "{},", arg)?;
-                }
-                write!(f, ")")
-            }
-            Expr::StructAccess { struct_name, field } => write!(f, "{}.{}", struct_name, field),
-            Expr::Array { elements } => {
-                write!(f, "[")?;
-                for element in elements {
-                    write!(f, "{},", element)?;
-                }
-                write!(f, "]")
-            }
-            Expr::ArrayAccess { array, index } => write!(f, "{}[{}]", array, index),
-            Expr::PrefixOp { op, expr } => write!(f, "({} {})", op, expr),
-            Expr::InfixOp { op, lhs, rhs } => write!(f, "({} {} {})", lhs, op, rhs),
-            Expr::PostfixOp { op, expr } => write!(f, "({} {})", expr, op),
-            Expr::Comment { text } => write!(f, "//{}", text),
-            Expr::BlockComment { text } => write!(f, "/*{}*/", text),
-        }
-    }
-}
-
 impl fmt::Display for Lit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -206,7 +160,32 @@ impl fmt::Display for Lit {
 impl fmt::Display for Stmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Stmt::Expr(expr) => write!(f, "{}", expr),
+            Stmt::Literal(lit) => write!(f, "{}", lit),
+            Stmt::Identifier(name) => write!(f, "{}", name),
+            Stmt::FnCall {
+                function: fn_name,
+                args,
+            } => {
+                write!(f, "{}(", fn_name)?;
+                for arg in args {
+                    write!(f, "{},", arg)?;
+                }
+                write!(f, ")")
+            }
+            Stmt::StructAccess { struct_name, field } => write!(f, "{}.{}", struct_name, field),
+            Stmt::Array { elements } => {
+                write!(f, "[")?;
+                for element in elements {
+                    write!(f, "{},", element)?;
+                }
+                write!(f, "]")
+            }
+            Stmt::ArrayAccess { array, index } => write!(f, "{}[{}]", array, index),
+            Stmt::PrefixOp { op, expr } => write!(f, "({} {})", op, expr),
+            Stmt::InfixOp { op, lhs, rhs } => write!(f, "({} {} {})", lhs, op, rhs),
+            Stmt::PostfixOp { op, expr } => write!(f, "({} {})", expr, op),
+            Stmt::Comment { text } => write!(f, "//{}", text),
+            Stmt::BlockComment { text } => write!(f, "/*{}*/", text),
             Stmt::Let {
                 identifier: var_name,
                 statement: value,
@@ -234,7 +213,6 @@ impl fmt::Display for Stmt {
                 }
                 write!(f, "}}")
             }
-            Stmt::StructAccess { struct_name, field } => write!(f, "{}.{};", struct_name, field),
             Stmt::FunctionCall { fn_name, args } => {
                 write!(f, "{}(", fn_name)?;
                 for arg in args {
@@ -306,7 +284,6 @@ impl fmt::Display for Stmt {
             Stmt::Use { name } => write!(f, "use {};", name),
             Stmt::Defer { stmt } => write!(f, "defer {{\n{}\n}}", stmt),
             Stmt::Empty => write!(f, ""),
-            Stmt::MemberAccess { object, member } => write!(f, "{}.{}", object, member),
         }
     }
 }
