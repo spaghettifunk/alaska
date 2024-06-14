@@ -148,8 +148,13 @@ where
                     fn_
                 } else if self.at(T![.]) {
                     // caller needs to consume the dot
-                    println!("Fn Caller: {:?}", name);
-                    Ok(ast::Expr::Identifier(name))
+                    self.consume(T![.]);
+
+                    let expr = self.expression();
+                    Ok(ast::Expr::StructAccess {
+                        struct_name: name,
+                        field: Box::new(expr?),
+                    })
                 } else {
                     // plain identifier
                     Ok(ast::Expr::Identifier(name))

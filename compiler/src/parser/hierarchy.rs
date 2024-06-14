@@ -307,21 +307,24 @@ where
         })
     }
 
-    fn parse_dot(&mut self) -> Result<ast::Stmt> {
+    fn parse_dot(&mut self, struct_name: String) -> Result<ast::Stmt> {
         self.consume(T![.]);
+
         let ident = self.next().unwrap();
         let ident_name = self.text(ident).to_string();
 
         if self.at(T!['(']) {
             let fn_call = self.parse_fn_call(ident_name);
-            Ok(ast::Stmt::Expr(fn_call.unwrap()))
+            Ok(ast::Stmt::StructAccess {
+                struct_name,
+                field: Box::new(fn_call?),
+            })
         } else if self.at(T![.]) {
             self.consume(T![.]);
             let expr = self.expression();
             Ok(ast::Stmt::StructAccess {
-                struct_name: "".to_string(),
-                field: ident_name,
-                value: Box::new(expr?),
+                struct_name,
+                field: Box::new(expr?),
             })
         } else {
             Ok(ast::Stmt::Expr(ast::Expr::Identifier(ident_name)))
@@ -335,7 +338,7 @@ where
                 assignment
             }
             T![.] => {
-                let field_access = self.parse_dot();
+                let field_access = self.parse_dot(name);
                 field_access
             }
             T!['('] => {

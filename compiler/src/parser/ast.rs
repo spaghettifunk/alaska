@@ -19,7 +19,7 @@ pub enum Expr {
     },
     StructAccess {
         struct_name: String,
-        field: String,
+        field: Box<Expr>,
     },
     PrefixOp {
         op: TokenKind,
@@ -68,8 +68,7 @@ pub enum Stmt {
     },
     StructAccess {
         struct_name: String,
-        field: String,
-        value: Box<Expr>,
+        field: Box<Expr>,
     },
     MemberAccess {
         object: String,
@@ -235,11 +234,7 @@ impl fmt::Display for Stmt {
                 }
                 write!(f, "}}")
             }
-            Stmt::StructAccess {
-                struct_name,
-                field,
-                value,
-            } => write!(f, "{}.{} = {};", struct_name, field, value),
+            Stmt::StructAccess { struct_name, field } => write!(f, "{}.{};", struct_name, field),
             Stmt::FunctionCall { fn_name, args } => {
                 write!(f, "{}(", fn_name)?;
                 for arg in args {
