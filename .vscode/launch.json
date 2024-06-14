@@ -5,16 +5,14 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Compiler",
-      "type": "cppdbg",
+      "name": "Debug compiler",
+      "type": "lldb",
       "request": "launch",
-      "program": "${workspaceFolder}/bin/alaska",
-      "args": ["compiler/tests/simple.ask"],
-      "stopAtEntry": false,
-      "cwd": "${workspaceFolder}",
-      "environment": [],
-      "externalConsole": false,
-      "MIMode": "lldb"
+      "cargo": {
+        "args": ["build"]
+      },
+      "args": ["--build", "inputs/test.ask"],
+      "cwd": "${workspaceFolder}"
     }
   ]
 }

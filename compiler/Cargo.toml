@@ -7,3 +7,6 @@ edition = "2021"
 regex = "1"
 lazy_static = "1"
 logos = "0.14.0"
+
+[dev-dependencies]
+unindent = "0.2.3"

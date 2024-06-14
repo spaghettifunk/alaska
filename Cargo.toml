@@ -8,9 +8,10 @@ members = ["compiler"]
 
 [dependencies]
 compiler = { path = "compiler" }
+structopt = "0.3.24"
+anyhow = "1.0.44"
 
 [dev-dependencies]
-unindent = "0.2.3"
 criterion = "0.5.1"
 
 [[bench]]

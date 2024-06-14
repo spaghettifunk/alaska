@@ -6,9 +6,11 @@ mod expressions;
 mod hierarchy;
 
 use crate::{
-    lexer::{Lexer, Token, TokenKind},
+    lexer::{Lexer, Span, Token, TokenKind},
     T,
 };
+
+pub type Result<T> = std::result::Result<T, error::ParseError>;
 
 pub struct TokenIter<'input> {
     lexer: Lexer<'input>,
@@ -50,6 +52,12 @@ impl<'input> Parser<'input, TokenIter<'input>> {
             tokens: TokenIter::new(input).peekable(),
         }
     }
+
+    pub fn print_tokens(&mut self) {
+        for token in self.tokens.by_ref() {
+            println!("{:?}", token);
+        }
+    }
 }
 
 impl<'input, I> Parser<'input, I>
@@ -88,5 +96,11 @@ where
             "Expected to consume `{}`, but found `{}`",
             expected, token.kind
         );
+    }
+
+    /// Returns the [`Span`] of the next token, or an empty span at byte 0 if at the end of input.
+    pub(crate) fn position(&mut self) -> Span {
+        let peek = self.tokens.peek().map(|token| token.span);
+        peek.unwrap_or_else(|| (0..0).into())
     }
 }

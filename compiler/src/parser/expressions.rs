@@ -3,7 +3,7 @@ use crate::{
     T,
 };
 
-use super::{ast, error::ParseError, Parser};
+use super::{ast, error::ParseError, Parser, Result};
 
 trait Operator {
     /// Prefix operators bind their operand to the right.
@@ -57,11 +57,43 @@ where
     I: Iterator<Item = Token>,
 {
     #[inline]
-    pub fn expression(&mut self) -> ast::Expr {
-        self.parse_expression(0)
+    pub fn expression(&mut self) -> Result<ast::Expr> {
+        match self.parse_expression(0) {
+            Ok(expr) => return Ok(expr),
+            Err(found) => return Err(found),
+        }
     }
 
-    pub fn parse_expression(&mut self, binding_power: u8) -> ast::Expr {
+    fn parse_expr_fn_call(&mut self, fn_name: String) -> Result<ast::Expr> {
+        let mut args = Vec::new();
+        self.consume(T!['(']);
+        while !self.at(T![')']) {
+            let arg = self.expression();
+            args.push(arg?);
+            if self.at(T![,]) {
+                self.consume(T![,]);
+            }
+        }
+        self.consume(T![')']);
+
+        Ok(ast::Expr::FnCall {
+            function: fn_name,
+            args,
+        })
+    }
+
+    fn parse_exp_array_access(&mut self, array: String) -> Result<ast::Expr> {
+        self.consume(T!['[']);
+        let index = self.expression();
+        self.consume(T![']']);
+
+        Ok(ast::Expr::ArrayAccess {
+            array,
+            index: Box::new(index?),
+        })
+    }
+
+    fn parse_expression(&mut self, binding_power: u8) -> Result<ast::Expr> {
         let next = self.peek();
         let mut lhs = match next {
             // `lit @ T![int]` (and similar) gives a name to the kind that is matched, so that I can use it again in the second match.
@@ -100,40 +132,27 @@ where
                     ),
                     _ => unreachable!(),
                 };
-                ast::Expr::Literal(expr_lit)
+                Ok(ast::Expr::Literal(expr_lit))
             }
             T![ident] => {
                 let name = {
                     let ident_token = self.next().unwrap();
                     self.text(ident_token).to_string() // <- now we need a copy
                 };
-                // self.consume(T![ident]);
 
                 if self.at(T!['[']) {
-                    // array access
-                    self.consume(T!['[']);
-                    let index = self.parse_expression(0);
-                    self.consume(T![']']);
-                    ast::Expr::ArrayAccess {
-                        array: name,
-                        index: Box::new(index),
-                    }
+                    let arr = self.parse_exp_array_access(name);
+                    arr
                 } else if self.at(T!['(']) {
-                    //  function call
-                    let mut args = Vec::new();
-                    self.consume(T!['(']);
-                    while !self.at(T![')']) {
-                        let arg = self.parse_expression(0);
-                        args.push(arg);
-                        if self.at(T![,]) {
-                            self.consume(T![,]);
-                        }
-                    }
-                    self.consume(T![')']);
-                    ast::Expr::FnCall { fn_name: name, args }
+                    let fn_ = self.parse_expr_fn_call(name);
+                    fn_
+                } else if self.at(T![.]) {
+                    // caller needs to consume the dot
+                    println!("Fn Caller: {:?}", name);
+                    Ok(ast::Expr::Identifier(name))
                 } else {
                     // plain identifier
-                    ast::Expr::Ident(name)
+                    Ok(ast::Expr::Identifier(name))
                 }
             }
             T!['('] => {
@@ -149,26 +168,48 @@ where
                 let mut elements = Vec::new();
                 while !self.at(T![']']) {
                     let element = self.parse_expression(0);
-                    elements.push(element);
+                    elements.push(element?);
                     if self.at(T![,]) {
                         self.consume(T![,]);
                     }
                 }
                 self.consume(T![']']);
-                ast::Expr::Array { elements }
+                Ok(ast::Expr::Array { elements })
             }
             op @ T![+] | op @ T![-] | op @ T![!] => {
                 self.consume(op);
                 let ((), right_binding_power) = op.prefix_binding_power();
                 let expr = self.parse_expression(right_binding_power);
-                ast::Expr::PrefixOp {
+
+                Ok(ast::Expr::PrefixOp {
                     op,
-                    expr: Box::new(expr),
-                }
+                    expr: Box::new(expr?),
+                })
             }
-            kind => {
-                // TODO: parser error here
-                panic!("Unexpected token in expression: `{}`", kind);
+            T![nil] => {
+                self.consume(T![nil]);
+
+                Ok(ast::Expr::Literal(ast::Lit::Nil()))
+            }
+            found => {
+                return Err(ParseError::UnexpectedToken {
+                    found,
+                    expected: vec![
+                        T![int],
+                        T![float],
+                        T![string],
+                        T![bool],
+                        T![char],
+                        T![ident],
+                        T!['('],
+                        T!['['],
+                        T![+],
+                        T![-],
+                        T![!],
+                        T![nil],
+                    ],
+                    position: self.position(),
+                });
             }
         };
 
@@ -204,8 +245,38 @@ where
                 T![EOF] => break,
                 T!['('] | T![')'] | T!['['] | T![']'] | T!['{'] | T!['}'] | T![,] | T![;] => break,
                 found => {
-                    // TODO: parser error here
-                    panic!("Unexpected token in expression: `{}`", found);
+                    return Err(ParseError::UnexpectedToken {
+                        found,
+                        expected: vec![
+                            T![+],
+                            T![-],
+                            T![*],
+                            T![/],
+                            T![^],
+                            T![.],
+                            T![=],
+                            T![+=],
+                            T![-=],
+                            T![*=],
+                            T![/=],
+                            T![%=],
+                            T![&=],
+                            T![|=],
+                            T![^=],
+                            T![==],
+                            T![!=],
+                            T![&&],
+                            T![||],
+                            T![<],
+                            T![<=],
+                            T![>],
+                            T![>=],
+                            T![>>=],
+                            T![<<=],
+                            T![!],
+                        ],
+                        position: self.position(),
+                    });
                 }
             };
 
@@ -219,10 +290,10 @@ where
                 self.consume(op);
                 // no recursive call here, because we have already
                 // parsed our operand `lhs`
-                lhs = ast::Expr::PostfixOp {
+                lhs = Ok(ast::Expr::PostfixOp {
                     op,
-                    expr: Box::new(lhs),
-                };
+                    expr: Box::new(lhs?),
+                });
                 // parsed an operator --> go round the loop again
                 continue;
             }
@@ -236,17 +307,130 @@ where
 
                 self.consume(op);
                 let rhs = self.parse_expression(right_binding_power);
-                lhs = ast::Expr::InfixOp {
+                lhs = Ok(ast::Expr::InfixOp {
                     op,
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(rhs),
-                };
+                    lhs: Box::new(lhs?),
+                    rhs: Box::new(rhs?),
+                });
                 // parsed an operator --> go round the loop again
                 continue;
             }
             break;
         }
-
         lhs
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        parser::{ast, Parser},
+        T,
+    };
+
+    #[test]
+    fn parse_expression() {
+        fn parse(input: &str) -> ast::Expr {
+            let mut parser = Parser::new(input);
+            parser.expression().unwrap()
+        }
+
+        // Weird spaces are to test that whitespace gets filtered out
+        let expr = parse("42");
+        assert_eq!(expr, ast::Expr::Literal(ast::Lit::Int(42)));
+        let expr = parse("  2.7768");
+        assert_eq!(expr, ast::Expr::Literal(ast::Lit::Float(2.7768)));
+        let expr = parse(r#""I am a String!""#);
+        assert_eq!(expr, ast::Expr::Literal(ast::Lit::Str("I am a String!".to_string())));
+        let expr = parse("foo");
+        assert_eq!(expr, ast::Expr::Identifier("foo".to_string()));
+        let expr = parse("bar (  x, 2)");
+        assert_eq!(
+            expr,
+            ast::Expr::FnCall {
+                function: "bar".to_string(),
+                args: vec![
+                    ast::Expr::Identifier("x".to_string()),
+                    ast::Expr::Literal(ast::Lit::Int(2)),
+                ],
+            }
+        );
+        let expr = parse("!  is_visible");
+        assert_eq!(
+            expr,
+            ast::Expr::PrefixOp {
+                op: T![!],
+                expr: Box::new(ast::Expr::Identifier("is_visible".to_string())),
+            }
+        );
+        let expr = parse("(-13)");
+        assert_eq!(
+            expr,
+            ast::Expr::PrefixOp {
+                op: T![-],
+                expr: Box::new(ast::Expr::Literal(ast::Lit::Int(13))),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_binary_expressions() {
+        fn parse(input: &str) -> ast::Expr {
+            let mut parser = Parser::new(input);
+            parser.expression().unwrap()
+        }
+
+        let expr = parse("4 + 2 * 3");
+        assert_eq!(expr.to_string(), "(4 + (2 * 3))");
+
+        let expr = parse("4 * 2 + 3");
+        assert_eq!(expr.to_string(), "((4 * 2) + 3)");
+
+        let expr = parse("4 - 2 - 3");
+        assert_eq!(expr.to_string(), "((4 - 2) - 3)");
+
+        let expr = parse("4 ^ 2 ^ 3");
+        assert_eq!(expr.to_string(), "(4 ^ (2 ^ 3))");
+
+        let expr = parse(r#"45.7 + 3 + 5 * 4^8^9 / 6 > 4 && test - 7 / 4 == "Hallo""#);
+        assert_eq!(
+            expr.to_string(),
+            r#"((((45.7 + 3) + ((5 * (4 ^ (8 ^ 9))) / 6)) > 4) && ((test - (7 / 4)) == "Hallo"))"#
+        );
+
+        let expr = parse("2.0 / ((3.0 + 4.0) * (5.4 - 6.0)) * 7.0");
+        assert_eq!(expr.to_string(), "((2 / ((3 + 4) * (5.4 - 6))) * 7)");
+
+        let expr = parse("min ( test + 4 , sin(2*PI ))");
+        assert_eq!(expr.to_string(), "min((test + 4),sin((2 * PI),),)");
+
+        let expr = parse(r#"a <<= 3 + 4 * 7 ^ 6 / 4"#);
+        assert_eq!(expr.to_string(), "(a <<= (3 + ((4 * (7 ^ 6)) / 4)))");
+
+        let expr = parse("array[10]");
+        assert_eq!(expr.to_string(), "array[10]");
+
+        let expr = parse("array[10 + 2]");
+        assert_eq!(expr.to_string(), "array[(10 + 2)]");
+
+        let expr = parse("a += array[10 + 2]");
+        assert_eq!(expr.to_string(), "(a += array[(10 + 2)])");
+
+        let expr = parse("res.abs()");
+        assert_eq!(expr.to_string(), "(res . abs())");
+
+        let expr = parse("res.abs(math.rand[2])");
+        assert_eq!(expr.to_string(), "(res . abs((math . rand[2]),))");
+    }
+
+    #[test]
+    fn parse_postfix_op() {
+        fn parse(input: &str) -> ast::Expr {
+            let mut parser = Parser::new(input);
+            parser.expression().unwrap()
+        }
+
+        let expr = parse("4 + -2! * 3");
+        assert_eq!(expr.to_string(), "(4 + ((- (2 !)) * 3))");
     }
 }
