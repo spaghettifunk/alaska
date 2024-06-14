@@ -422,10 +422,10 @@ mod tests {
         assert_eq!(expr.to_string(), "(a += array[(10 + 2)])");
 
         let expr = parse("res.abs()");
-        assert_eq!(expr.to_string(), "(res . abs())");
+        assert_eq!(expr.to_string(), "res.abs()");
 
         let expr = parse("res.abs(math.rand[2])");
-        assert_eq!(expr.to_string(), "(res . abs((math . rand[2]),))");
+        assert_eq!(expr.to_string(), "res.abs(math.rand[2],)");
     }
 
     #[test]

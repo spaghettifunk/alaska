@@ -11,9 +11,6 @@ compiler = { path = "compiler" }
 structopt = "0.3.24"
 anyhow = "1.0.44"
 
-[dev-dependencies]
-criterion = "0.5.1"
-
 [[bench]]
 name = "main"
 path = "compiler/src/benches/main.rs"

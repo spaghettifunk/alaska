@@ -114,25 +114,16 @@ where
         );
 
         let name = self.text(ident).to_string();
+
         let st_type = self.type_(&Some(name.clone()));
-
-        if !self.at(T!['{']) {
-            return Err(ParseError::UnexpectedToken {
-                found: self.peek(),
-                expected: vec![T!['{']],
-                position: self.position(),
-            });
-        }
-
-        self.consume(T!['{']);
 
         let mut members = Vec::new();
 
+        self.consume(T!['{']);
         while !self.at(T!['}']) {
-            let member_ident = self.next().expect(
-                "Tried to parse struct member, 
-                but there were no more tokens",
-            );
+            let member_ident = self
+                .next()
+                .expect("Tried to parse struct member, but there were no more tokens");
             assert_eq!(
                 member_ident.kind,
                 T![ident],
@@ -156,9 +147,10 @@ where
         })
     }
 
+    //  Bar<Baz<T>, U>
     fn type_(&mut self, opt_name: &Option<String>) -> ast::Type {
-        let mut int_name: Option<String> = None;
-        if opt_name.is_none() {
+        let mut int_name: Option<String> = opt_name.to_owned();
+        if int_name.is_none() {
             let ident = self.next().expect("Tried to parse type, but there were no more tokens");
             assert_eq!(
                 ident.kind,
@@ -176,7 +168,7 @@ where
             self.consume(T![<]);
             while !self.at(T![>]) {
                 // Generic parameters are also types
-                let generic = self.type_(&int_name);
+                let generic = self.type_(&None);
                 generics.push(generic);
                 if self.at(T![,]) {
                     self.consume(T![,]);
@@ -184,6 +176,8 @@ where
             }
             self.consume(T![>]);
         }
+
+        assert_ne!(int_name, None, "Expected a type name");
 
         ast::Type {
             name: int_name.unwrap(),
@@ -1039,7 +1033,7 @@ mod tests {
     fn parse_input() {
         fn parse(input: &str) -> ast::SourceFile {
             let mut parser = Parser::new(input);
-            parser.parse_input(input).unwrap()
+            parser.parse_input("test").unwrap()
         }
 
         let item = parse(
@@ -1076,6 +1070,9 @@ mod tests {
             ast::SourceFile { name, statements } => {
                 assert_eq!(name, "test");
                 assert_eq!(statements.len(), 3);
+                for stmt in statements {
+                    assert!(stmt.is_ok());
+                }
             }
         };
     }
