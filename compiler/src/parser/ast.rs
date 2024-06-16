@@ -91,8 +91,9 @@ pub enum Stmt {
     },
     FunctionSignature {
         name: String,
+        generics: Option<Vec<Box<Type>>>,
         parameters: Vec<(String, Type)>,
-        return_type: Option<Box<Type>>,
+        return_type: Option<Vec<Box<Type>>>,
     },
     Function {
         name: String,
@@ -306,10 +307,21 @@ impl fmt::Display for Stmt {
             }
             Stmt::FunctionSignature {
                 name,
+                generics,
                 parameters,
                 return_type,
             } => {
                 write!(f, "fn {}(", name)?;
+                if let Some(generics) = generics {
+                    write!(f, "<")?;
+                    for (i, generic) in generics.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}", generic)?;
+                    }
+                    write!(f, ">")?;
+                }
                 for (i, (name, type_)) in parameters.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
@@ -318,7 +330,7 @@ impl fmt::Display for Stmt {
                 }
                 write!(f, ")")?;
                 if let Some(return_type) = return_type {
-                    write!(f, " -> {}", return_type)?;
+                    write!(f, " -> {:?}", return_type)?;
                 }
                 Ok(())
             }

@@ -71,6 +71,7 @@ lazy_static! {
     static ref FLOAT_REGEX: Regex = Regex::new(r#"^((\d+(\.\d+)?)|(\.\d+))([Ee](\+|-)?\d+)?"#).unwrap();
     static ref IDENTIFIER_REGEX: Regex = Regex::new(r##"^([A-Za-z]|_)([A-Za-z]|_|\d)*"##).unwrap();
     static ref CHAR_REGEX: Regex = Regex::new(r#"^'[a-zA-Z0-9!-\\/:-@[-`{-~]]'"#).unwrap(); // single char using '' and ASCII range
+    static ref BOOL_REGEX: Regex = Regex::new(r#"^(true|false)"#).unwrap();
 }
 
 pub(crate) fn get_rules() -> Vec<Rule> {
@@ -327,7 +328,7 @@ pub(crate) fn get_rules() -> Vec<Rule> {
         },
         Rule {
             kind: T![bool],
-            matches: |input| match_keyword(input, "bool"),
+            matches: |input| match_regex(input, &BOOL_REGEX),
         },
         Rule {
             kind: T![ident],

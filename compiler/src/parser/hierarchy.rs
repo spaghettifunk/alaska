@@ -43,6 +43,27 @@ where
         assert_eq!(ident.kind, T![ident], "Expected identifier, but found `{}`", ident.kind);
         let fn_name = self.text(ident).to_string();
 
+        let mut generics = None;
+        if self.at(T![<]) {
+            self.consume(T![<]);
+            generics = Some(Vec::new());
+            loop {
+                let generic = self.type_(&None);
+                generics.as_mut().unwrap().push(Box::new(generic));
+
+                match self.peek() {
+                    T![>] => {
+                        self.consume(T![>]);
+                        break;
+                    }
+                    T![,] => {
+                        self.consume(T![,]);
+                    }
+                    found => panic!("Expected `,` or `>` after generic type, found `{}` instead", found),
+                }
+            }
+        }
+
         self.consume(T!['(']);
         let mut parameters = Vec::new();
         while !self.at(T![')']) {
@@ -67,7 +88,7 @@ where
         self.consume(T![')']);
 
         // return statement
-        let mut return_type: Option<Box<Type>> = None;
+        let mut return_types: Vec<Box<Type>> = Vec::new();
         if self.at(T![->]) {
             self.consume(T![->]);
             let mut multiple_types: bool = false;
@@ -76,7 +97,13 @@ where
                 multiple_types = true;
             }
 
-            return_type = Some(Box::new(self.type_(&None)));
+            return_types.push(Box::new(self.type_(&None)));
+            if self.at(T![,]) {
+                while self.at(T![,]) {
+                    self.consume(T![,]);
+                    return_types.push(Box::new(self.type_(&None)));
+                }
+            }
 
             if multiple_types {
                 if !self.at(T![')']) {
@@ -90,12 +117,21 @@ where
                 }
             }
         }
-
-        Ok(ast::Stmt::FunctionSignature {
-            name: fn_name,
-            parameters,
-            return_type,
-        })
+        if return_types.is_empty() {
+            Ok(ast::Stmt::FunctionSignature {
+                name: fn_name,
+                generics,
+                parameters,
+                return_type: None,
+            })
+        } else {
+            Ok(ast::Stmt::FunctionSignature {
+                name: fn_name,
+                generics,
+                parameters,
+                return_type: Some(return_types),
+            })
+        }
     }
 
     fn parse_fn(&mut self) -> Result<ast::Stmt> {
@@ -651,7 +687,6 @@ mod tests {
                 T![/],
                 T![float],
                 T![^],
-                T![int],
                 T![;],
                 // `chars` assignment
                 T![let],
