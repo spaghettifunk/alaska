@@ -193,7 +193,6 @@ where
             }
             T![nil] => {
                 self.consume(T![nil]);
-
                 Ok(ast::Stmt::Literal(ast::Lit::Nil()))
             }
             found => {

@@ -1,15 +1,19 @@
+// this works
 package main;
 
+// this works
 use fmt;
 use test;
 
+// this works
 interface Writer<T, Foo<E>> {    
-    Simple();
-    Advance(src: string, dst: string) -> error;
-    WithGenerics<T, Foo<E>>(i: int, is_fancy: bool) -> error;
-    WithReturnTuple() -> (int, error);
+    simple();
+    advance(src: string, dst: string) -> error;
+    with_generics<T, Foo<E>>(i: int, is_fancy: bool) -> error;
+    with_return_tuple() -> (int, error);
 }
 
+// this works
 struct Banana<Bar<T, U>, Z, Boo<U, X>> {
     Name string;
     Noop int;
@@ -19,6 +23,43 @@ struct Banana<Bar<T, U>, Z, Boo<U, X>> {
     Baf Z;
     Goooooo Boo<U,X>;
 }
+
+// TODO: in the evaluation pass, if a member is `pub` but the struct is not, return an error
+pub struct Test {
+    Name string; // fields always private
+    pub Age int; // this is a publicly accessible field
+}
+
+impl Banana<Bar<T, U>, Z, Boo<U, X>> with (Writer<T, Foo<E>>, Test) {
+    fn private_method() -> int {
+        let k = 20 - 45;
+        let w = k * 8 / 3;  // TODO: not working!
+        fmt.Println("result %d", w);
+        return -10;
+    }
+
+    pub fn public_method(src: string) -> (int, Z, error) {
+        let x = "hello public method";
+        return (10, x, nil);
+    }
+}
+
+/* TODO: to be implemented
+// They should only be integers, like C
+[pub] enum Fancy {
+    Value,
+    Another,
+    MegaValue,
+}
+
+[pub] enum FancyValued {
+    Value = 2,
+    Another = 9,
+    MegaValue = 8,
+}
+
+*/
+
 
 fn main() -> int {
     let t = fmt.random.lekker.Println("hello");

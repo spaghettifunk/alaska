@@ -84,10 +84,16 @@ pub enum Stmt {
     Return {
         value: Vec<Box<Stmt>>,
     },
-    Struct {
+    StructMember {
+        is_public: bool,
         name: String,
         type_: Type,
-        members: Vec<(String, Type)>,
+    },
+    Struct {
+        is_public: bool,
+        name: String,
+        type_: Type,
+        members: Vec<Stmt>,
     },
     FunctionSignature {
         name: String,
@@ -96,11 +102,18 @@ pub enum Stmt {
         return_type: Option<Vec<Box<Type>>>,
     },
     Function {
+        is_public: bool,
         name: String,
         generics: Option<Vec<Box<Type>>>,
         parameters: Vec<(String, Type)>,
         body: Vec<Stmt>,
         return_type: Option<Vec<Box<Type>>>,
+    },
+    ImplDefinition {
+        name: String,
+        generics: Option<Vec<Box<Type>>>,
+        interfaces: Option<Vec<Box<Type>>>,
+        methods: Vec<Box<Stmt>>,
     },
     Package {
         path: String,
@@ -263,20 +276,32 @@ impl fmt::Display for Stmt {
                 }
                 Ok(())
             }
-            Stmt::Struct { name, type_, members } => {
+            Stmt::Struct {
+                is_public,
+                name,
+                type_,
+                members,
+            } => {
+                if *is_public {
+                    write!(f, "pub ")?;
+                }
                 write!(f, "struct {}<{}> {{\n", name, type_)?;
-                for (name, type_) in members {
-                    write!(f, "{}: {},\n", name, type_)?;
+                for m in members {
+                    write!(f, "{}\n", m)?;
                 }
                 write!(f, "}}")
             }
             Stmt::Function {
+                is_public,
                 name,
                 generics,
                 parameters,
                 body,
                 return_type,
             } => {
+                if *is_public {
+                    write!(f, "pub ")?;
+                }
                 write!(f, "fn {}(", name)?;
                 if let Some(generics) = generics {
                     write!(f, "<")?;
@@ -346,6 +371,38 @@ impl fmt::Display for Stmt {
                     write!(f, " -> {:?}", return_type)?;
                 }
                 Ok(())
+            }
+            Stmt::StructMember { is_public, name, type_ } => {
+                if *is_public {
+                    write!(f, "pub ")?;
+                }
+                write!(f, "{}: {}", name, type_)
+            }
+            Stmt::ImplDefinition {
+                name,
+                generics,
+                interfaces,
+                methods,
+            } => {
+                write!(f, "impl")?;
+                if let Some(generics) = generics {
+                    write!(f, "<")?;
+                    for (i, generic) in generics.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}", generic)?;
+                    }
+                    write!(f, ">")?;
+                }
+                if let Some(interface) = interfaces {
+                    write!(f, " for {:?}", interface)?;
+                }
+                write!(f, " {{\n")?;
+                for method in methods {
+                    write!(f, "{}\n", method)?;
+                }
+                write!(f, "}}")
             }
         }
     }

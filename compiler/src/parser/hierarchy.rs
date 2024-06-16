@@ -1,8 +1,4 @@
-use crate::{
-    lexer::{Token, TokenKind},
-    parser::ast::Type,
-    T,
-};
+use crate::{lexer::Token, parser::ast::Type, T};
 
 use super::{ast, error::ParseError, Parser, Result};
 
@@ -134,7 +130,7 @@ where
         }
     }
 
-    fn parse_fn(&mut self) -> Result<ast::Stmt> {
+    fn parse_fn(&mut self, is_public: bool) -> Result<ast::Stmt> {
         self.consume(T![fn]);
         let ident = self.next().expect("Expected identifier after `fn`");
         assert_eq!(
@@ -238,6 +234,7 @@ where
         self.consume(T!['}']);
 
         Ok(ast::Stmt::Function {
+            is_public,
             name: fn_name,
             generics,
             parameters,
@@ -294,7 +291,7 @@ where
         })
     }
 
-    fn parse_struct(&mut self) -> Result<ast::Stmt> {
+    fn parse_struct(&mut self, is_public: bool) -> Result<ast::Stmt> {
         self.consume(T![struct]);
 
         let ident = self.next().expect("Expected identifier after `struct`");
@@ -312,6 +309,12 @@ where
 
         self.consume(T!['{']);
         while !self.at(T!['}']) {
+            let mut is_public: bool = false;
+            if self.at(T![pub]) {
+                self.consume(T![pub]);
+                is_public = true;
+            }
+
             let member_ident = self
                 .next()
                 .expect("Tried to parse struct member, but there were no more tokens");
@@ -323,7 +326,11 @@ where
             );
             let member_name = self.text(member_ident).to_string();
             let member_type = self.type_(&None);
-            members.push((member_name, member_type));
+            members.push(ast::Stmt::StructMember {
+                is_public,
+                name: member_name,
+                type_: member_type,
+            });
 
             self.consume(T![;]);
         }
@@ -331,6 +338,7 @@ where
         self.consume(T!['}']);
 
         Ok(ast::Stmt::Struct {
+            is_public,
             name: struct_name,
             type_: struct_type,
             members,
@@ -556,6 +564,10 @@ where
                 let field_access = self.parse_dot(name);
                 field_access
             }
+            T![,] => {
+                self.consume(T![,]);
+                Ok(ast::Stmt::Identifier(name))
+            }
             T!['('] => {
                 let fn_call = self.parse_fn_call(name);
                 Ok(fn_call?)
@@ -563,16 +575,114 @@ where
             found => {
                 return Err(ParseError::UnexpectedToken {
                     found,
-                    expected: vec![T![=], T![.], T!['(']],
+                    expected: vec![T![=], T![.], T![,], T!['(']],
                     position: self.position(),
                 });
             }
         }
     }
 
+    fn parse_impl(&mut self) -> Result<ast::Stmt> {
+        self.consume(T![impl]);
+
+        let ident = self.next().expect("Expected identifier after `impl`");
+        assert_eq!(
+            ident.kind,
+            T![ident],
+            "Expected identifier after `impl`, but found `{}`",
+            ident.kind
+        );
+
+        let name = self.text(ident).to_string();
+
+        let mut generics = None;
+        if self.at(T![<]) {
+            self.consume(T![<]);
+            generics = Some(Vec::new());
+            loop {
+                let generic = self.type_(&None);
+                generics.as_mut().unwrap().push(Box::new(generic));
+
+                match self.peek() {
+                    T![>] => {
+                        self.consume(T![>]);
+                        break;
+                    }
+                    T![,] => {
+                        self.consume(T![,]);
+                    }
+                    found => panic!("Expected `,` or `>` after generic type, found `{}` instead", found),
+                }
+            }
+        }
+
+        // with (Writer<T, Foo<E>>, Test)
+        let mut interfaces: Option<Vec<Box<Type>>> = None;
+        if self.at(T![with]) {
+            self.consume(T![with]);
+
+            interfaces = Some(Vec::new());
+
+            let mut multiple_types: bool = false;
+            if self.at(T!['(']) {
+                self.consume(T!['(']);
+                multiple_types = true;
+            }
+
+            interfaces.as_mut().unwrap().push(Box::new(self.type_(&None)));
+
+            if self.at(T![,]) {
+                while self.at(T![,]) {
+                    self.consume(T![,]);
+                    interfaces.as_mut().unwrap().push(Box::new(self.type_(&None)));
+                }
+            }
+
+            if multiple_types {
+                if !self.at(T![')']) {
+                    return Err(ParseError::UnexpectedToken {
+                        found: self.peek(),
+                        expected: vec![T![')']],
+                        position: self.position(),
+                    });
+                } else {
+                    self.consume(T![')']);
+                }
+            }
+        }
+
+        let mut methods = Vec::new();
+        self.consume(T!['{']);
+        while !self.at(T!['}']) {
+            let mut is_public = false;
+            if self.at(T![pub]) {
+                self.consume(T![pub]);
+                is_public = true;
+            }
+            let fn_ = self.parse_fn(is_public);
+            methods.push(Box::new(fn_?));
+        }
+        self.consume(T!['}']);
+
+        Ok(ast::Stmt::ImplDefinition {
+            name,
+            generics,
+            interfaces,
+            methods,
+        })
+    }
+
     fn statement(&mut self) -> Result<ast::Stmt> {
         let next = self.peek();
         let ast = match next {
+            T![-] => {
+                self.consume(T![-]);
+                let expr = self.expression();
+                Ok(ast::Stmt::PrefixOp {
+                    op: T![-],
+                    expr: Box::new(expr?),
+                })
+            }
             T![int] | T![float] | T![string] | T![bool] | T![char] => {
                 let lit = self.expression();
                 Ok(lit?)
@@ -643,17 +753,41 @@ where
                     let stmt = self.parse_use();
                     stmts.push(stmt);
                 }
+                T![pub] => {
+                    self.consume(T![pub]);
+                    match self.peek() {
+                        T![fn] => {
+                            let stmt = self.parse_fn(true);
+                            stmts.push(stmt);
+                        }
+                        T![struct] => {
+                            let stmt = self.parse_struct(true);
+                            stmts.push(stmt);
+                        }
+                        found => {
+                            return Err(ParseError::UnexpectedToken {
+                                found,
+                                expected: vec![T![fn], T![struct]],
+                                position: self.position(),
+                            });
+                        }
+                    }
+                }
                 T![fn] => {
-                    let stmt = self.parse_fn();
+                    let stmt = self.parse_fn(false);
                     stmts.push(stmt);
                 }
                 T![struct] => {
-                    let stmt = self.parse_struct();
+                    let stmt = self.parse_struct(false);
                     stmts.push(stmt);
                 }
                 T![interface] => {
                     let stmt = self.parse_interface();
                     stmts.push(stmt);
+                }
+                T![impl] => {
+                    let impl_def = self.parse_impl();
+                    stmts.push(impl_def);
                 }
                 T![EOF] => break,
                 found => match self.statement() {
@@ -1025,7 +1159,7 @@ mod tests {
     fn parse_function() {
         fn parse(input: &str) -> ast::Stmt {
             let mut parser = Parser::new(input);
-            parser.parse_fn().unwrap()
+            parser.parse_fn(false).unwrap()
         }
 
         let item = parse(
@@ -1053,6 +1187,7 @@ mod tests {
 
         match item {
             ast::Stmt::Function {
+                is_public: false,
                 name,
                 generics,
                 parameters,
@@ -1074,7 +1209,7 @@ mod tests {
     fn parse_function_with_return() {
         fn parse(input: &str) -> ast::Stmt {
             let mut parser = Parser::new(input);
-            parser.parse_fn().unwrap()
+            parser.parse_fn(false).unwrap()
         }
 
         let item = parse(
@@ -1103,6 +1238,7 @@ mod tests {
 
         match item {
             ast::Stmt::Function {
+                is_public: false,
                 name,
                 generics,
                 parameters,
@@ -1126,7 +1262,7 @@ mod tests {
     fn parse_struct() {
         fn parse(input: &str) -> ast::Stmt {
             let mut parser = Parser::new(input);
-            parser.parse_struct().unwrap()
+            parser.parse_struct(false).unwrap()
         }
 
         let item = parse(
@@ -1142,15 +1278,33 @@ mod tests {
         );
 
         match item {
-            ast::Stmt::Struct { name, members, type_ } => {
+            ast::Stmt::Struct {
+                is_public,
+                name,
+                members,
+                type_,
+            } => {
+                assert_eq!(is_public, false);
                 assert_eq!(name, "Foo");
                 assert_eq!(members.len(), 2);
-                let (x, x_type) = &members[0];
+                let member = &members[0];
 
-                assert_eq!(x, "x");
+                match member {
+                    ast::Stmt::StructMember { is_public, name, type_ } => {
+                        assert_eq!(*is_public, false);
+                        assert_eq!(name, "x");
+                    }
+                    _ => unreachable!(),
+                }
 
-                let (bar, bar_type) = &members[1];
-                assert_eq!(bar, "bar");
+                let member2 = &members[1];
+                match member2 {
+                    ast::Stmt::StructMember { is_public, name, type_ } => {
+                        assert_eq!(*is_public, false);
+                        assert_eq!(name, "bar");
+                    }
+                    _ => unreachable!(),
+                }
             }
             _ => unreachable!(),
         };

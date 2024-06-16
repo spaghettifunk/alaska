@@ -63,6 +63,7 @@ pub enum TokenKind {
     Comma,
     Underscore,
     // Keywords
+    KeywordPub,
     KeywordFn,
     KeywordLet,
     KeywordIf,
@@ -72,6 +73,7 @@ pub enum TokenKind {
     KeywordStruct,
     KeywordInterface,
     KeywordImpl,
+    KeywordWith,
     KeywordConst,
     KeywordReturn,
     KeywordDefer,
@@ -213,6 +215,9 @@ macro_rules! T {
     [let] => {
         $crate::lexer::TokenKind::KeywordLet
     };
+    [pub] => {
+        $crate::lexer::TokenKind::KeywordPub
+    };
     [fn] => {
         $crate::lexer::TokenKind::KeywordFn
     };
@@ -242,6 +247,9 @@ macro_rules! T {
     };
     [impl] => {
         $crate::lexer::TokenKind::KeywordImpl
+    };
+    [with] => {
+        $crate::lexer::TokenKind::KeywordWith
     };
     [const] => {
         $crate::lexer::TokenKind::KeywordConst
@@ -385,6 +393,7 @@ impl fmt::Display for TokenKind {
                 T![bool] => "Bool",
                 T![char] => "Char",
                 T![let] => "let",
+                T![pub] => "pub",
                 T![fn] => "fn",
                 T![struct] => "struct",
                 T![if] => "if",
@@ -395,6 +404,7 @@ impl fmt::Display for TokenKind {
                 T![interface] => "interface",
                 T![match] => "match",
                 T![impl] => "impl",
+                T![with] => "with",
                 T![const] => "const",
                 T![return] => "return",
                 T![defer] => "defer",

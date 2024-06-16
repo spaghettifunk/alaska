@@ -193,6 +193,10 @@ pub(crate) fn get_rules() -> Vec<Rule> {
             matches: |input| match_keyword(input, "let"),
         },
         Rule {
+            kind: T![pub],
+            matches: |input| match_keyword(input, "pub"),
+        },
+        Rule {
             kind: T![fn],
             matches: |input| match_keyword(input, "fn"),
         },
@@ -227,6 +231,10 @@ pub(crate) fn get_rules() -> Vec<Rule> {
         Rule {
             kind: T![impl],
             matches: |input| match_keyword(input, "impl"),
+        },
+        Rule {
+            kind: T![with],
+            matches: |input| match_keyword(input, "with"),
         },
         Rule {
             kind: T![match],
