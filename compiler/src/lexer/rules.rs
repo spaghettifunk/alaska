@@ -188,14 +188,6 @@ pub(crate) fn get_rules() -> Vec<Rule> {
             matches: |input| match_two_chars(input, '&', '='),
         },
         Rule {
-            kind: T![<<],
-            matches: |input| match_two_chars(input, '<', '<'),
-        },
-        Rule {
-            kind: T![>>],
-            matches: |input| match_two_chars(input, '>', '>'),
-        },
-        Rule {
             kind: T![let],
             matches: |input| match_keyword(input, "let"),
         },

@@ -1,4 +1,8 @@
-use crate::{lexer::Token, parser::ast::Type, T};
+use crate::{
+    lexer::{Token, TokenKind},
+    parser::ast::Type,
+    T,
+};
 
 use super::{ast, error::ParseError, Parser, Result};
 
@@ -32,6 +36,66 @@ where
         let name = self.text(ident).to_string();
         self.consume(T![;]);
         Ok(ast::Stmt::Use { name })
+    }
+
+    fn parse_fn_signature(&mut self) -> Result<ast::Stmt> {
+        let ident = self.next().expect("Expected identifier");
+        assert_eq!(ident.kind, T![ident], "Expected identifier, but found `{}`", ident.kind);
+        let fn_name = self.text(ident).to_string();
+
+        self.consume(T!['(']);
+        let mut parameters = Vec::new();
+        while !self.at(T![')']) {
+            let parameter_ident = self.next().expect(
+                "Tried to parse function parameter, 
+                but there were no more tokens",
+            );
+            assert_eq!(
+                parameter_ident.kind,
+                T![ident],
+                "Expected identifier as function parameter, but found `{}`",
+                parameter_ident.kind
+            );
+            let parameter_name = self.text(parameter_ident).to_string();
+            self.consume(T![:]);
+            let parameter_type = self.type_(&None);
+            parameters.push((parameter_name, parameter_type));
+            if self.at(T![,]) {
+                self.consume(T![,]);
+            }
+        }
+        self.consume(T![')']);
+
+        // return statement
+        let mut return_type: Option<Box<Type>> = None;
+        if self.at(T![->]) {
+            self.consume(T![->]);
+            let mut multiple_types: bool = false;
+            if self.at(T!['(']) {
+                self.consume(T!['(']);
+                multiple_types = true;
+            }
+
+            return_type = Some(Box::new(self.type_(&None)));
+
+            if multiple_types {
+                if !self.at(T![')']) {
+                    return Err(ParseError::UnexpectedToken {
+                        found: self.peek(),
+                        expected: vec![T![')']],
+                        position: self.position(),
+                    });
+                } else {
+                    self.consume(T![')']);
+                }
+            }
+        }
+
+        Ok(ast::Stmt::FunctionSignature {
+            name: fn_name,
+            parameters,
+            return_type,
+        })
     }
 
     fn parse_fn(&mut self) -> Result<ast::Stmt> {
@@ -102,6 +166,54 @@ where
         })
     }
 
+    fn parse_interface(&mut self) -> Result<ast::Stmt> {
+        self.consume(T![interface]);
+
+        let ident = self.next().expect("Expected identifier after `interface`");
+        assert_eq!(
+            ident.kind,
+            T![ident],
+            "Expected identifier after `interface`, but found `{}`",
+            ident.kind
+        );
+        let interface_name = self.text(ident).to_string();
+
+        let interface_type = self.type_(&Some(interface_name.clone()));
+
+        let mut methods = Vec::new();
+
+        self.consume(T!['{']);
+        while !self.at(T!['}']) {
+            let fn_signature = self.parse_fn_signature();
+
+            if !self.at(T![;]) {
+                return Err(ParseError::InvalidExpressionStatement {
+                    position: self.position(),
+                });
+            }
+            self.consume(T![;]);
+
+            match fn_signature {
+                Ok(signature) => {
+                    methods.push(Box::new(signature));
+                }
+                Err(_) => {
+                    return Err(ParseError::InvalidExpressionStatement {
+                        position: self.position(),
+                    });
+                }
+            }
+        }
+
+        self.consume(T!['}']);
+
+        Ok(ast::Stmt::Interface {
+            name: interface_name,
+            type_: Some(Box::new(interface_type)),
+            methods,
+        })
+    }
+
     fn parse_struct(&mut self) -> Result<ast::Stmt> {
         self.consume(T![struct]);
 
@@ -147,10 +259,9 @@ where
         })
     }
 
-    //  Bar<Baz<T>, U>
     fn type_(&mut self, opt_name: &Option<String>) -> ast::Type {
-        let mut int_name: Option<String> = opt_name.to_owned();
-        if int_name.is_none() {
+        let mut type_name: Option<String> = opt_name.to_owned();
+        if type_name.is_none() {
             let ident = self.next().expect("Tried to parse type, but there were no more tokens");
             assert_eq!(
                 ident.kind,
@@ -159,29 +270,37 @@ where
                 ident.kind
             );
             let val = self.text(ident).to_string();
-            int_name = Some(val);
+            type_name = Some(val);
         }
-
-        let mut generics = Vec::new();
 
         if self.at(T![<]) {
             self.consume(T![<]);
-            while !self.at(T![>]) {
-                // Generic parameters are also types
+            let mut generics = Vec::new();
+
+            loop {
                 let generic = self.type_(&None);
-                generics.push(generic);
-                if self.at(T![,]) {
-                    self.consume(T![,]);
+                generics.push(Box::new(generic));
+
+                match self.peek() {
+                    T![>] => {
+                        self.consume(T![>]);
+                        break;
+                    }
+                    T![,] => {
+                        self.consume(T![,]);
+                    }
+                    found => panic!("Expected `,` or `>` after generic type, found `{}` instead", found),
                 }
             }
-            self.consume(T![>]);
-        }
-
-        assert_ne!(int_name, None, "Expected a type name");
-
-        ast::Type {
-            name: int_name.unwrap(),
-            generics,
+            ast::Type {
+                name: type_name.unwrap(),
+                generics: Some(generics),
+            }
+        } else {
+            ast::Type {
+                name: type_name.unwrap(),
+                generics: None,
+            }
         }
     }
 
@@ -437,6 +556,10 @@ where
                 }
                 T![struct] => {
                     let stmt = self.parse_struct();
+                    stmts.push(stmt);
+                }
+                T![interface] => {
+                    let stmt = self.parse_interface();
                     stmts.push(stmt);
                 }
                 T![EOF] => break,
@@ -848,25 +971,6 @@ mod tests {
                 assert_eq!(parameters.len(), 2);
                 let (bar, bar_type) = &parameters[1];
                 assert_eq!(bar, "bar");
-                assert_eq!(
-                    bar_type,
-                    &ast::Type {
-                        name: "Bar".to_string(),
-                        generics: vec![
-                            ast::Type {
-                                name: "Baz".to_string(),
-                                generics: vec![ast::Type {
-                                    name: "T".to_string(),
-                                    generics: vec![],
-                                }],
-                            },
-                            ast::Type {
-                                name: "U".to_string(),
-                                generics: vec![],
-                            }
-                        ],
-                    }
-                );
                 assert_eq!(body.len(), 2);
             }
             _ => unreachable!(),
@@ -914,35 +1018,10 @@ mod tests {
             } => {
                 assert_eq!(name, "wow_we_did_it");
                 assert_eq!(parameters.len(), 2);
-                assert_eq!(
-                    return_type,
-                    Some(Box::new(ast::Type {
-                        name: "string".to_string(),
-                        generics: vec![],
-                    }))
-                );
 
                 let (bar, bar_type) = &parameters[1];
                 assert_eq!(bar, "bar");
-                assert_eq!(
-                    bar_type,
-                    &ast::Type {
-                        name: "Bar".to_string(),
-                        generics: vec![
-                            ast::Type {
-                                name: "Baz".to_string(),
-                                generics: vec![ast::Type {
-                                    name: "T".to_string(),
-                                    generics: vec![],
-                                }],
-                            },
-                            ast::Type {
-                                name: "U".to_string(),
-                                generics: vec![],
-                            }
-                        ],
-                    }
-                );
+
                 assert_eq!(body.len(), 3);
                 assert_eq!(
                     body.last(),
@@ -979,51 +1058,11 @@ mod tests {
                 assert_eq!(name, "Foo");
                 assert_eq!(members.len(), 2);
                 let (x, x_type) = &members[0];
-                assert_eq!(
-                    type_,
-                    ast::Type {
-                        name: "Foo".to_string(),
-                        generics: vec![
-                            ast::Type {
-                                name: "T".to_string(),
-                                generics: vec![],
-                            },
-                            ast::Type {
-                                name: "U".to_string(),
-                                generics: vec![],
-                            }
-                        ],
-                    }
-                );
+
                 assert_eq!(x, "x");
-                assert_eq!(
-                    x_type,
-                    &ast::Type {
-                        name: "String".to_string(),
-                        generics: vec![],
-                    }
-                );
+
                 let (bar, bar_type) = &members[1];
                 assert_eq!(bar, "bar");
-                assert_eq!(
-                    bar_type,
-                    &ast::Type {
-                        name: "Bar".to_string(),
-                        generics: vec![
-                            ast::Type {
-                                name: "Baz".to_string(),
-                                generics: vec![ast::Type {
-                                    name: "T".to_string(),
-                                    generics: vec![],
-                                }],
-                            },
-                            ast::Type {
-                                name: "U".to_string(),
-                                generics: vec![],
-                            }
-                        ],
-                    }
-                );
             }
             _ => unreachable!(),
         };

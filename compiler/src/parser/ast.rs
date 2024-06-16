@@ -6,6 +6,11 @@ use std::fmt;
 pub enum Stmt {
     Literal(Lit),
     Identifier(String),
+    Interface {
+        name: String,
+        type_: Option<Box<Type>>,
+        methods: Vec<Box<Stmt>>,
+    },
     FnCall {
         function: String,
         args: Vec<Stmt>,
@@ -84,6 +89,11 @@ pub enum Stmt {
         type_: Type,
         members: Vec<(String, Type)>,
     },
+    FunctionSignature {
+        name: String,
+        parameters: Vec<(String, Type)>,
+        return_type: Option<Box<Type>>,
+    },
     Function {
         name: String,
         parameters: Vec<(String, Type)>,
@@ -109,7 +119,7 @@ pub struct SourceFile {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Type {
     pub name: String,
-    pub generics: Vec<Type>,
+    pub generics: Option<Vec<Box<Type>>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -130,9 +140,9 @@ pub struct AST {
 impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.name)?;
-        if !self.generics.is_empty() {
+        if let Some(generics) = &self.generics {
             write!(f, "<")?;
-            for (i, generic) in self.generics.iter().enumerate() {
+            for (i, generic) in generics.iter().enumerate() {
                 if i > 0 {
                     write!(f, ", ")?;
                 }
@@ -284,6 +294,34 @@ impl fmt::Display for Stmt {
             Stmt::Use { name } => write!(f, "use {};", name),
             Stmt::Defer { stmt } => write!(f, "defer {{\n{}\n}}", stmt),
             Stmt::Empty => write!(f, ""),
+            Stmt::Interface { name, type_, methods } => {
+                write!(f, "interface {} {{\n", name)?;
+                if let Some(type_) = type_ {
+                    write!(f, "{}\n", type_)?;
+                }
+                for method in methods {
+                    write!(f, "{}\n", method)?;
+                }
+                write!(f, "}}")
+            }
+            Stmt::FunctionSignature {
+                name,
+                parameters,
+                return_type,
+            } => {
+                write!(f, "fn {}(", name)?;
+                for (i, (name, type_)) in parameters.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}: {}", name, type_)?;
+                }
+                write!(f, ")")?;
+                if let Some(return_type) = return_type {
+                    write!(f, " -> {}", return_type)?;
+                }
+                Ok(())
+            }
         }
     }
 }

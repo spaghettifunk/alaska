@@ -43,8 +43,6 @@ pub enum TokenKind {
     Minus,
     Star,
     Slash,
-    ShiftRight,
-    ShiftLeft,
     Decrement,
     Increment,
     AddAssign,
@@ -323,12 +321,6 @@ macro_rules! T {
     [%=] => {
         $crate::lexer::TokenKind::ModAssign
     };
-    [<<] => {
-        $crate::lexer::TokenKind::ShiftLeft
-    };
-    [>>] => {
-        $crate::lexer::TokenKind::ShiftRight
-    };
     [<<=] => {
         $crate::lexer::TokenKind::ShlAssign
     };
@@ -435,8 +427,6 @@ impl fmt::Display for TokenKind {
                 T![&=] => "&=",
                 T![|=] => "|=",
                 T![^=] => "^=",
-                T![<<] => "<<",
-                T![>>] => ">>",
                 T![<<=] => "<<=",
                 T![>>=] => ">>=",
                 // Misc

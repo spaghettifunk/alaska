@@ -3,6 +3,13 @@ package main;
 use fmt;
 use test;
 
+interface Writer<T, Foo<E>> {    
+    Simple();
+    Advance(src: string, dst: string) -> error;
+    WithGenerics<T, Foo<E>>(i: int, is_fancy: bool) -> error;
+    WithReturnTuple() -> (int, error);
+}
+
 fn main() -> int {
     let t = fmt.random.lekker.Println("hello");
     return 0;
