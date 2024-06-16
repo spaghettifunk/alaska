@@ -82,7 +82,7 @@ pub enum Stmt {
         stmts: Vec<Stmt>,
     },
     Return {
-        value: Box<Stmt>,
+        value: Vec<Box<Stmt>>,
     },
     Struct {
         name: String,
@@ -97,10 +97,10 @@ pub enum Stmt {
     },
     Function {
         name: String,
+        generics: Option<Vec<Box<Type>>>,
         parameters: Vec<(String, Type)>,
         body: Vec<Stmt>,
-        return_type: Option<Box<Type>>,
-        return_stmt: Option<Box<Stmt>>,
+        return_type: Option<Vec<Box<Type>>>,
     },
     Package {
         path: String,
@@ -256,7 +256,13 @@ impl fmt::Display for Stmt {
                 }
                 write!(f, "}}")
             }
-            Stmt::Return { value } => write!(f, "return {};", value),
+            Stmt::Return { value } => {
+                write!(f, "return ")?;
+                for val in value {
+                    write!(f, "{},", val)?;
+                }
+                Ok(())
+            }
             Stmt::Struct { name, type_, members } => {
                 write!(f, "struct {}<{}> {{\n", name, type_)?;
                 for (name, type_) in members {
@@ -266,12 +272,22 @@ impl fmt::Display for Stmt {
             }
             Stmt::Function {
                 name,
+                generics,
                 parameters,
                 body,
                 return_type,
-                return_stmt,
             } => {
                 write!(f, "fn {}(", name)?;
+                if let Some(generics) = generics {
+                    write!(f, "<")?;
+                    for (i, generic) in generics.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}", generic)?;
+                    }
+                    write!(f, ">")?;
+                }
                 for (i, (name, type_)) in parameters.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
@@ -280,14 +296,11 @@ impl fmt::Display for Stmt {
                 }
                 write!(f, ")")?;
                 if let Some(return_type) = return_type {
-                    write!(f, " -> {}", return_type)?;
+                    write!(f, " -> {:?}", return_type)?;
                 }
                 write!(f, " {{\n")?;
                 for stmt in body {
                     write!(f, "{}\n", stmt)?;
-                }
-                if let Some(return_stmt) = return_stmt {
-                    write!(f, "return {};", return_stmt)?;
                 }
                 write!(f, "}}")
             }

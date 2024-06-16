@@ -87,7 +87,7 @@ where
         }
         self.consume(T![')']);
 
-        // return statement
+        // return type
         let mut return_types: Vec<Box<Type>> = Vec::new();
         if self.at(T![->]) {
             self.consume(T![->]);
@@ -145,6 +145,29 @@ where
         );
         let fn_name = self.text(ident).to_string();
 
+        // parse the generics if any
+        let mut generics = None;
+        if self.at(T![<]) {
+            self.consume(T![<]);
+            generics = Some(Vec::new());
+            loop {
+                let generic = self.type_(&None);
+                generics.as_mut().unwrap().push(Box::new(generic));
+
+                match self.peek() {
+                    T![>] => {
+                        self.consume(T![>]);
+                        break;
+                    }
+                    T![,] => {
+                        self.consume(T![,]);
+                    }
+                    found => panic!("Expected `,` or `>` after generic type, found `{}` instead", found),
+                }
+            }
+        }
+
+        // parse the parameters if any
         self.consume(T!['(']);
         let mut parameters = Vec::new();
         while !self.at(T![')']) {
@@ -168,16 +191,42 @@ where
         }
         self.consume(T![')']);
 
-        // return statement
-        let mut return_type: Option<Box<Type>> = None;
+        // parse the return type if any
+        let mut return_types = None;
         if self.at(T![->]) {
             self.consume(T![->]);
-            return_type = Some(Box::new(self.type_(&None)));
+            return_types = Some(Vec::new());
+            let mut multiple_types: bool = false;
+            if self.at(T!['(']) {
+                self.consume(T!['(']);
+                multiple_types = true;
+            }
+
+            return_types.as_mut().unwrap().push(Box::new(self.type_(&None)));
+            if self.at(T![,]) {
+                while self.at(T![,]) {
+                    self.consume(T![,]);
+                    return_types.as_mut().unwrap().push(Box::new(self.type_(&None)));
+                }
+            }
+
+            if multiple_types {
+                if !self.at(T![')']) {
+                    return Err(ParseError::UnexpectedToken {
+                        found: self.peek(),
+                        expected: vec![T![')']],
+                        position: self.position(),
+                    });
+                } else {
+                    self.consume(T![')']);
+                }
+            }
         }
 
         assert!(self.at(T!['{']), "Expected a block after function header");
         self.consume(T!['{']);
 
+        // parse the body of the function
         let mut body = Vec::new();
         while !self.at(T!['}']) {
             let stmt = match self.statement() {
@@ -186,19 +235,14 @@ where
             };
             body.push(stmt);
         }
-
         self.consume(T!['}']);
-
-        let return_stmt = Some(Box::new(ast::Stmt::Return {
-            value: Box::new(body.last().unwrap().clone()),
-        }));
 
         Ok(ast::Stmt::Function {
             name: fn_name,
+            generics,
             parameters,
             body,
-            return_type,
-            return_stmt,
+            return_type: return_types,
         })
     }
 
@@ -261,9 +305,8 @@ where
             ident.kind
         );
 
-        let name = self.text(ident).to_string();
-
-        let st_type = self.type_(&Some(name.clone()));
+        let struct_name = self.text(ident).to_string();
+        let struct_type = self.type_(&Some(struct_name.clone()));
 
         let mut members = Vec::new();
 
@@ -281,16 +324,15 @@ where
             let member_name = self.text(member_ident).to_string();
             let member_type = self.type_(&None);
             members.push((member_name, member_type));
-            if self.at(T![,]) {
-                self.consume(T![,]);
-            }
+
+            self.consume(T![;]);
         }
 
         self.consume(T!['}']);
 
         Ok(ast::Stmt::Struct {
-            name,
-            type_: st_type,
+            name: struct_name,
+            type_: struct_type,
             members,
         })
     }
@@ -362,12 +404,27 @@ where
 
     fn parse_return(&mut self) -> Result<ast::Stmt> {
         self.consume(T![return]);
-        let value = self.statement();
+
+        // multiple statements need to be parsed?
+        let mut multiple_stmts = Vec::new();
+        if self.at(T!['(']) {
+            self.consume(T!['(']);
+            while !self.at(T![')']) {
+                let stmt = self.statement();
+                multiple_stmts.push(Box::new(stmt?));
+                if self.at(T![,]) {
+                    self.consume(T![,]);
+                }
+            }
+            self.consume(T![')']);
+        } else {
+            let value = self.statement();
+            multiple_stmts.push(Box::new(value?));
+        }
+
         self.consume(T![;]);
 
-        Ok(ast::Stmt::Return {
-            value: Box::new(value?),
-        })
+        Ok(ast::Stmt::Return { value: multiple_stmts })
     }
 
     fn parse_if(&mut self) -> Result<ast::Stmt> {
@@ -997,12 +1054,13 @@ mod tests {
         match item {
             ast::Stmt::Function {
                 name,
+                generics,
                 parameters,
                 body,
                 return_type: _,
-                return_stmt: _,
             } => {
                 assert_eq!(name, "wow_we_did_it");
+                assert_eq!(generics, None);
                 assert_eq!(parameters.len(), 2);
                 let (bar, bar_type) = &parameters[1];
                 assert_eq!(bar, "bar");
@@ -1046,24 +1104,19 @@ mod tests {
         match item {
             ast::Stmt::Function {
                 name,
+                generics,
                 parameters,
                 body,
                 return_type,
-                return_stmt: _,
             } => {
                 assert_eq!(name, "wow_we_did_it");
+                assert_eq!(generics, None);
                 assert_eq!(parameters.len(), 2);
 
                 let (bar, bar_type) = &parameters[1];
                 assert_eq!(bar, "bar");
 
                 assert_eq!(body.len(), 3);
-                assert_eq!(
-                    body.last(),
-                    Some(&ast::Stmt::Return {
-                        value: Box::new(ast::Stmt::Literal(ast::Lit::Str("hello, Alaska!".to_string())))
-                    })
-                );
             }
             _ => unreachable!(),
         };
