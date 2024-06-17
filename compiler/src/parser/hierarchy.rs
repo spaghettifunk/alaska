@@ -346,6 +346,43 @@ where
         })
     }
 
+    fn parse_enum(&mut self, is_public: bool) -> Result<ast::Stmt> {
+        self.consume(T![enum]);
+
+        let ident = self.next().expect("Expected identifier after `enum`");
+        assert_eq!(
+            ident.kind,
+            T![ident],
+            "Expected identifier after `enum`, but found `{}`",
+            ident.kind
+        );
+
+        let enum_name = self.text(ident).to_string();
+        let mut members = Vec::new();
+        self.consume(T!['{']);
+        while !self.at(T!['}']) {
+            let member_ident = self
+                .next()
+                .expect("Tried to parse enum member, but there were no more tokens");
+            assert_eq!(
+                member_ident.kind,
+                T![ident],
+                "Expected identifier as enum member, but found `{}`",
+                member_ident.kind
+            );
+            let member_name = self.text(member_ident).to_string();
+            members.push(member_name);
+            self.consume(T![,]);
+        }
+        self.consume(T!['}']);
+
+        Ok(ast::Stmt::Enum {
+            is_public,
+            name: enum_name,
+            members,
+        })
+    }
+
     fn parse_type(&mut self, opt_name: &Option<String>) -> ast::Type {
         let mut type_name: Option<String> = opt_name.to_owned();
         if type_name.is_none() {
@@ -876,6 +913,10 @@ where
                             let stmt = self.parse_struct(true);
                             stmts.push(stmt);
                         }
+                        T![enum] => {
+                            let stmt = self.parse_enum(true);
+                            stmts.push(stmt);
+                        }
                         found => {
                             return Err(ParseError::UnexpectedToken {
                                 found,
@@ -891,6 +932,10 @@ where
                 }
                 T![struct] => {
                     let stmt = self.parse_struct(false);
+                    stmts.push(stmt);
+                }
+                T![enum] => {
+                    let stmt = self.parse_enum(false);
                     stmts.push(stmt);
                 }
                 T![interface] => {

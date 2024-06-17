@@ -89,6 +89,11 @@ pub enum Stmt {
         name: String,
         type_: Type,
     },
+    Enum {
+        is_public: bool,
+        name: String,
+        members: Vec<String>,
+    },
     Struct {
         is_public: bool,
         name: String,
@@ -429,6 +434,20 @@ impl fmt::Display for Stmt {
                 write!(f, "{{")?;
                 for (name, value) in members {
                     write!(f, "{}: {},", name, value)?;
+                }
+                write!(f, "}}")
+            }
+            Stmt::Enum {
+                is_public,
+                name,
+                members,
+            } => {
+                if *is_public {
+                    write!(f, "pub ")?;
+                }
+                write!(f, "enum {} {{\n", name)?;
+                for member in members {
+                    write!(f, "{}\n", member)?;
                 }
                 write!(f, "}}")
             }

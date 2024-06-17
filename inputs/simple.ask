@@ -48,28 +48,20 @@ impl Banana<Bar<T, U>, Z, Boo<U, X>> with (Writer<T, Foo<E>>, Test) {
     }
 }
 
-/* TODO: to be implemented
-// They should only be integers, like C
-[pub] enum Fancy {
+// internally we transform them into an integer sequence
+// but the user can use them as simple labels. Good to use them in the
+// `match` statement
+pub enum Fancy {
     Value,
     Another,
     MegaValue,
 }
 
-[pub] enum FancyValued {
-    Value = 2,
-    Another = 9,
-    MegaValue = 8,
+enum FancyEnum {
+    Lalalala,
+    Test,
+    MegaTest,
 }
-
-// In this case, we use a incremental sequence for those enum-values
-// that don't have an assignment
-[pub] enum FancyValued {
-    Value = 0,
-    Another,
-    MegaValue,
-}
-*/
 
 // these are immutable values!
 const hello: string = "test";
@@ -89,9 +81,7 @@ const (
 
 fn main() -> int {
     let f = Test{name: "Davide", age: 35 };
-    
     let b = Banana.new("Davide", 35);
-
     let t = fmt.random.lekker.Println("hello");
     return 0;
 }
