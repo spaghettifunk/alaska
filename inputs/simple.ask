@@ -88,9 +88,9 @@ const (
 
 
 fn main() -> int {
-    //let f = Test{name: "Davide", age: 35 };
+    let f = Test{name: "Davide", age: 35 };
     
-    //let b = Banana.new("Davide", 35);
+    let b = Banana.new("Davide", 35);
 
     let t = fmt.random.lekker.Println("hello");
     return 0;

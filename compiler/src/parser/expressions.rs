@@ -149,12 +149,34 @@ where
                 } else if self.at(T![.]) {
                     // caller needs to consume the dot
                     self.consume(T![.]);
-
                     let expr = self.expression();
                     Ok(ast::Stmt::StructAccess {
                         struct_name: name,
                         field: Box::new(expr?),
                     })
+                } else if self.at(T!['{']) {
+                    self.consume(T!['{']);
+                    let mut members = Vec::new();
+                    while !self.at(T!['}']) {
+                        let member_ident = self
+                            .next()
+                            .expect("Tried to parse struct member, but there were no more tokens");
+                        assert_eq!(
+                            member_ident.kind,
+                            T![ident],
+                            "Expected identifier as struct member, but found `{}`",
+                            member_ident.kind
+                        );
+                        let member_name = self.text(member_ident).to_string();
+                        self.consume(T![:]);
+                        let member_value = self.expression();
+                        members.push((member_name, Box::new(member_value?)));
+                        if self.at(T![,]) {
+                            self.consume(T![,]);
+                        }
+                    }
+                    self.consume(T!['}']);
+                    Ok(ast::Stmt::StructInstantiation { name, members })
                 } else {
                     // plain identifier
                     Ok(ast::Stmt::Identifier(name))
