@@ -44,7 +44,7 @@ where
             self.consume(T![<]);
             generics = Some(Vec::new());
             loop {
-                let generic = self.type_(&None);
+                let generic = self.parse_type(&None);
                 generics.as_mut().unwrap().push(Box::new(generic));
 
                 match self.peek() {
@@ -75,7 +75,7 @@ where
             );
             let parameter_name = self.text(parameter_ident).to_string();
             self.consume(T![:]);
-            let parameter_type = self.type_(&None);
+            let parameter_type = self.parse_type(&None);
             parameters.push((parameter_name, parameter_type));
             if self.at(T![,]) {
                 self.consume(T![,]);
@@ -93,11 +93,12 @@ where
                 multiple_types = true;
             }
 
-            return_types.push(Box::new(self.type_(&None)));
+            return_types.push(Box::new(self.parse_type(&None)));
+
             if self.at(T![,]) {
                 while self.at(T![,]) {
                     self.consume(T![,]);
-                    return_types.push(Box::new(self.type_(&None)));
+                    return_types.push(Box::new(self.parse_type(&None)));
                 }
             }
 
@@ -147,7 +148,7 @@ where
             self.consume(T![<]);
             generics = Some(Vec::new());
             loop {
-                let generic = self.type_(&None);
+                let generic = self.parse_type(&None);
                 generics.as_mut().unwrap().push(Box::new(generic));
 
                 match self.peek() {
@@ -179,7 +180,7 @@ where
             );
             let parameter_name = self.text(parameter_ident).to_string();
             self.consume(T![:]);
-            let parameter_type = self.type_(&None);
+            let parameter_type = self.parse_type(&None);
             parameters.push((parameter_name, parameter_type));
             if self.at(T![,]) {
                 self.consume(T![,]);
@@ -198,11 +199,11 @@ where
                 multiple_types = true;
             }
 
-            return_types.as_mut().unwrap().push(Box::new(self.type_(&None)));
+            return_types.as_mut().unwrap().push(Box::new(self.parse_type(&None)));
             if self.at(T![,]) {
                 while self.at(T![,]) {
                     self.consume(T![,]);
-                    return_types.as_mut().unwrap().push(Box::new(self.type_(&None)));
+                    return_types.as_mut().unwrap().push(Box::new(self.parse_type(&None)));
                 }
             }
 
@@ -225,7 +226,7 @@ where
         // parse the body of the function
         let mut body = Vec::new();
         while !self.at(T!['}']) {
-            let stmt = match self.statement() {
+            let stmt = match self.parse_statement() {
                 Ok(stmt) => stmt,
                 Err(found) => return Err(found),
             };
@@ -255,7 +256,7 @@ where
         );
         let interface_name = self.text(ident).to_string();
 
-        let interface_type = self.type_(&Some(interface_name.clone()));
+        let interface_type = self.parse_type(&Some(interface_name.clone()));
 
         let mut methods = Vec::new();
 
@@ -303,7 +304,7 @@ where
         );
 
         let struct_name = self.text(ident).to_string();
-        let struct_type = self.type_(&Some(struct_name.clone()));
+        let struct_type = self.parse_type(&Some(struct_name.clone()));
 
         let mut members = Vec::new();
 
@@ -325,7 +326,7 @@ where
                 member_ident.kind
             );
             let member_name = self.text(member_ident).to_string();
-            let member_type = self.type_(&None);
+            let member_type = self.parse_type(&None);
             members.push(ast::Stmt::StructMember {
                 is_public,
                 name: member_name,
@@ -345,26 +346,28 @@ where
         })
     }
 
-    fn type_(&mut self, opt_name: &Option<String>) -> ast::Type {
+    fn parse_type(&mut self, opt_name: &Option<String>) -> ast::Type {
         let mut type_name: Option<String> = opt_name.to_owned();
         if type_name.is_none() {
             let ident = self.next().expect("Tried to parse type, but there were no more tokens");
+
             assert_eq!(
                 ident.kind,
                 T![ident],
-                "Expected identifier at start of type, but found `{}`",
+                "Expected identifier as type, but found `{}`",
                 ident.kind
             );
+
             let val = self.text(ident).to_string();
             type_name = Some(val);
         }
 
+        // check if the type is a generic type
         if self.at(T![<]) {
             self.consume(T![<]);
             let mut generics = Vec::new();
-
             loop {
-                let generic = self.type_(&None);
+                let generic = self.parse_type(&None);
                 generics.push(Box::new(generic));
 
                 match self.peek() {
@@ -378,13 +381,28 @@ where
                     found => panic!("Expected `,` or `>` after generic type, found `{}` instead", found),
                 }
             }
+            // we can't have arrays with a generic type
+            // there must always be a known type at compile time, like `int`, `float`, etc
             ast::Type {
                 name: type_name.unwrap(),
+                is_array: false,
                 generics: Some(generics),
             }
+        // check if the type is an array
+        } else if self.at(T!['[']) {
+            // array declaration
+            self.consume(T!['[']);
+            self.consume(T![']']);
+            ast::Type {
+                name: type_name.unwrap(),
+                is_array: true,
+                generics: None,
+            }
+        // just a name of a type - probably coming from a struct or elsewhere
         } else {
             ast::Type {
                 name: type_name.unwrap(),
+                is_array: false,
                 generics: None,
             }
         }
@@ -401,7 +419,7 @@ where
         );
         let name = self.text(ident).to_string();
         self.consume(T![=]);
-        let value = self.statement();
+        let value = self.expression();
         self.consume(T![;]);
 
         Ok(ast::Stmt::Let {
@@ -418,7 +436,7 @@ where
         if self.at(T!['(']) {
             self.consume(T!['(']);
             while !self.at(T![')']) {
-                let stmt = self.statement();
+                let stmt = self.parse_statement();
                 multiple_stmts.push(Box::new(stmt?));
                 if self.at(T![,]) {
                     self.consume(T![,]);
@@ -426,7 +444,7 @@ where
             }
             self.consume(T![')']);
         } else {
-            let value = self.statement();
+            let value = self.parse_statement();
             multiple_stmts.push(Box::new(value?));
         }
 
@@ -442,7 +460,7 @@ where
         self.consume(T![')']);
 
         assert!(self.at(T!['{']), "Expected a block after `if` statement");
-        let body = self.statement();
+        let body = self.parse_statement();
         let body = match body {
             Ok(ast::Stmt::Block { stmts }) => stmts,
             _ => unreachable!(),
@@ -454,7 +472,7 @@ where
                 self.at(T![if]) || self.at(T!['{']),
                 "Expected a block or an `if` after `else` statement"
             );
-            self.statement()
+            self.parse_statement()
         } else {
             Ok(ast::Stmt::Empty)
         };
@@ -487,7 +505,7 @@ where
 
         let mut body = Vec::new();
         while !self.at(T!['}']) {
-            let stmt = self.statement();
+            let stmt = self.parse_statement();
             body.push(stmt?);
         }
 
@@ -504,7 +522,7 @@ where
         self.consume(T!['{']);
         let mut stmts = Vec::new();
         while !self.at(T!['}']) {
-            let stmt = self.statement();
+            let stmt = self.parse_statement();
             match stmt {
                 Ok(stmt) => stmts.push(stmt),
                 Err(_) => break,
@@ -543,10 +561,38 @@ where
 
     fn parse_dot(&mut self, struct_name: String) -> Result<ast::Stmt> {
         self.consume(T![.]);
-        let stmt = self.statement();
+        let stmt = self.parse_statement();
         Ok(ast::Stmt::StructAccess {
             struct_name,
             field: Box::new(stmt?),
+        })
+    }
+
+    fn parse_struct_instatiation(&mut self, struct_name: String) -> Result<ast::Stmt> {
+        self.consume(T!['{']);
+        let mut members = Vec::new();
+        while !self.at(T!['}']) {
+            let member_ident = self
+                .next()
+                .expect("Tried to parse struct member, but there were no more tokens");
+            assert_eq!(
+                member_ident.kind,
+                T![ident],
+                "Expected identifier as struct member, but found `{}`",
+                member_ident.kind
+            );
+            let member_name = self.text(member_ident).to_string();
+            self.consume(T![:]);
+            let member_value = self.expression();
+            members.push((member_name, Box::new(member_value?)));
+            if self.at(T![,]) {
+                self.consume(T![,]);
+            }
+        }
+        self.consume(T!['}']);
+        Ok(ast::Stmt::StructInstantiation {
+            name: struct_name,
+            members,
         })
     }
 
@@ -571,6 +617,10 @@ where
             T!['('] => {
                 let fn_call = self.parse_fn_call(name);
                 Ok(fn_call?)
+            }
+            T!['{'] => {
+                let struct_inst = self.parse_struct_instatiation(name);
+                Ok(struct_inst?)
             }
             found => {
                 return Err(ParseError::UnexpectedToken {
@@ -600,7 +650,7 @@ where
             self.consume(T![<]);
             generics = Some(Vec::new());
             loop {
-                let generic = self.type_(&None);
+                let generic = self.parse_type(&None);
                 generics.as_mut().unwrap().push(Box::new(generic));
 
                 match self.peek() {
@@ -629,12 +679,12 @@ where
                 multiple_types = true;
             }
 
-            interfaces.as_mut().unwrap().push(Box::new(self.type_(&None)));
+            interfaces.as_mut().unwrap().push(Box::new(self.parse_type(&None)));
 
             if self.at(T![,]) {
                 while self.at(T![,]) {
                     self.consume(T![,]);
-                    interfaces.as_mut().unwrap().push(Box::new(self.type_(&None)));
+                    interfaces.as_mut().unwrap().push(Box::new(self.parse_type(&None)));
                 }
             }
 
@@ -672,7 +722,69 @@ where
         })
     }
 
-    fn statement(&mut self) -> Result<ast::Stmt> {
+    fn parse_const(&mut self) -> Result<ast::Stmt> {
+        let ident = self.next().expect("Expected identifier after `const`");
+        assert_eq!(
+            ident.kind,
+            T![ident],
+            "Expected identifier after `const`, but found `{}`",
+            ident.kind
+        );
+        let name = self.text(ident).to_string();
+
+        self.consume(T![:]);
+
+        let type_ = self.parse_type(&None);
+
+        self.consume(T![=]);
+        let value = self.expression();
+        self.consume(T![;]);
+
+        Ok(ast::Stmt::Const {
+            name,
+            type_,
+            value: Box::new(value?),
+        })
+    }
+
+    fn parse_constant_group(&mut self) -> Result<ast::Stmt> {
+        let mut constants = Vec::new();
+
+        self.consume(T![const]);
+
+        // multiple constants grouped together
+        let next = self.peek();
+        if next == T!['('] {
+            self.consume(T!['(']);
+            while !self.at(T![')']) {
+                let c = self.parse_const();
+                match c {
+                    Ok(c) => constants.push(Box::new(c)),
+                    Err(_) => {
+                        return Err(ParseError::InvalidExpressionStatement {
+                            position: self.position(),
+                        })
+                    }
+                }
+            }
+            self.consume(T![')']);
+        } else {
+            // single constant definition
+            let c = self.parse_const();
+            match c {
+                Ok(c) => constants.push(Box::new(c)),
+                Err(_) => {
+                    return Err(ParseError::InvalidExpressionStatement {
+                        position: self.position(),
+                    })
+                }
+            }
+        }
+
+        Ok(ast::Stmt::ConstantGroup { constants })
+    }
+
+    fn parse_statement(&mut self) -> Result<ast::Stmt> {
         let next = self.peek();
         let ast = match next {
             T![-] => {
@@ -717,7 +829,7 @@ where
             }
             T![defer] => {
                 self.consume(T![defer]);
-                let stmt = self.statement();
+                let stmt = self.parse_statement();
                 Ok(ast::Stmt::Defer { stmt: Box::new(stmt?) })
             }
             T![nil] => {
@@ -789,8 +901,12 @@ where
                     let impl_def = self.parse_impl();
                     stmts.push(impl_def);
                 }
+                T![const] => {
+                    let const_stmt = self.parse_constant_group();
+                    stmts.push(const_stmt);
+                }
                 T![EOF] => break,
-                found => match self.statement() {
+                found => match self.parse_statement() {
                     Ok(stmt) => stmts.push(Ok(stmt)),
                     Err(_) => {
                         return Err(ParseError::UnexpectedToken {
@@ -812,7 +928,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        lexer::Lexer,
+        lexer::{Lexer, TokenKind},
         parser::{ast, Parser},
         T,
     };
@@ -980,7 +1096,7 @@ mod tests {
     fn parse_statements() {
         fn parse(input: &str) -> ast::Stmt {
             let mut parser = Parser::new(input);
-            parser.statement().unwrap()
+            parser.parse_statement().unwrap()
         }
 
         let stmt = parse(
@@ -1122,7 +1238,7 @@ mod tests {
     fn parse_range_statement() {
         fn parse(input: &str) -> ast::Stmt {
             let mut parser = Parser::new(input);
-            parser.statement().unwrap()
+            parser.parse_statement().unwrap()
         }
 
         let stmt = parse(
@@ -1356,5 +1472,44 @@ mod tests {
                 }
             }
         };
+    }
+
+    #[test]
+    fn parse_statement_with_assignment_and_calculation() {
+        fn parse(input: &str) -> ast::Stmt {
+            let mut parser = Parser::new(input);
+            parser.parse_statement().unwrap()
+        }
+
+        let expr = parse("let k = x * 4 + -2! * 3 + z;");
+        assert_eq!(
+            expr,
+            ast::Stmt::Let {
+                identifier: "k".to_string(),
+                statement: Box::new(ast::Stmt::InfixOp {
+                    op: TokenKind::Plus,
+                    lhs: Box::new(ast::Stmt::InfixOp {
+                        op: TokenKind::Plus,
+                        lhs: Box::new(ast::Stmt::InfixOp {
+                            op: TokenKind::Star,
+                            lhs: Box::new(ast::Stmt::Identifier("x".to_string())),
+                            rhs: Box::new(ast::Stmt::Literal(ast::Lit::Int(4)))
+                        }),
+                        rhs: Box::new(ast::Stmt::InfixOp {
+                            op: TokenKind::Star,
+                            lhs: Box::new(ast::Stmt::PrefixOp {
+                                op: TokenKind::Minus,
+                                expr: Box::new(ast::Stmt::PostfixOp {
+                                    op: TokenKind::Bang,
+                                    expr: Box::new(ast::Stmt::Literal(ast::Lit::Int(2)))
+                                })
+                            }),
+                            rhs: Box::new(ast::Stmt::Literal(ast::Lit::Int(3)))
+                        })
+                    }),
+                    rhs: Box::new(ast::Stmt::Identifier("z".to_string()))
+                })
+            }
+        );
     }
 }

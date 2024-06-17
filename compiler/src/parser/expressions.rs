@@ -195,6 +195,23 @@ where
                 self.consume(T![nil]);
                 Ok(ast::Stmt::Literal(ast::Lit::Nil()))
             }
+            // vector literals to be added
+            T!['{'] => {
+                self.consume(T!['{']);
+                let mut elements = Vec::new();
+                while !self.at(T!['}']) {
+                    let value = self.parse_expression(0);
+                    match value {
+                        Ok(val) => elements.push(val),
+                        Err(err) => return Err(err),
+                    }
+                    if self.at(T![,]) {
+                        self.consume(T![,]);
+                    }
+                }
+                self.consume(T!['}']);
+                Ok(ast::Stmt::Array { elements })
+            }
             found => {
                 return Err(ParseError::UnexpectedToken {
                     found,

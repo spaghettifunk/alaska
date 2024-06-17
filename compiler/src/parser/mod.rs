@@ -84,6 +84,10 @@ where
         self.tokens.next()
     }
 
+    pub(crate) fn current(&mut self) -> Option<Token> {
+        self.tokens.peek().cloned()
+    }
+
     /// Move forward one token in the input and check
     /// that we pass the kind of token we expect.
     pub(crate) fn consume(&mut self, expected: TokenKind) {

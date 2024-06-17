@@ -31,9 +31,13 @@ pub struct Test {
 }
 
 impl Banana<Bar<T, U>, Z, Boo<U, X>> with (Writer<T, Foo<E>>, Test) {
+    pub fn new(name: string, noop: int) -> Banana<Bar<T, U>, Z, Boo<U, X>> {
+        return Banana{Name: name, Noop: noop};
+    }
+
     fn private_method() -> int {
         let k = 20 - 45;
-        let w = k * 8 / 3;  // TODO: not working!
+        let w = k * 8 / 3;
         fmt.Println("result %d", w);
         return -10;
     }
@@ -58,10 +62,36 @@ impl Banana<Bar<T, U>, Z, Boo<U, X>> with (Writer<T, Foo<E>>, Test) {
     MegaValue = 8,
 }
 
+// In this case, we use a incremental sequence for those enum-values
+// that don't have an assignment
+[pub] enum FancyValued {
+    Value = 0,
+    Another,
+    MegaValue,
+}
 */
+
+// these are immutable values!
+const hello: string = "test";
+const test: float = 3.14;
+
+const (
+    first: string = "hello world";
+    second: int = 42;
+    third: char = 'a';
+    fourth: float = 55.789;
+    fifth: string[] = {"one", "two", "three"};
+    sixth: int[] = {1,2,3,4,5};
+    seventh: float[] = {1.1,2.2,3.3};
+    eight: char[] = {'a', 'b', 'c'};
+)
 
 
 fn main() -> int {
+    //let f = Test{name: "Davide", age: 35 };
+    
+    //let b = Banana.new("Davide", 35);
+
     let t = fmt.random.lekker.Println("hello");
     return 0;
 }

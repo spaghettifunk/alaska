@@ -95,6 +95,10 @@ pub enum Stmt {
         type_: Type,
         members: Vec<Stmt>,
     },
+    StructInstantiation {
+        name: String,
+        members: Vec<(String, Box<Stmt>)>,
+    },
     FunctionSignature {
         name: String,
         generics: Option<Vec<Box<Type>>>,
@@ -115,6 +119,14 @@ pub enum Stmt {
         interfaces: Option<Vec<Box<Type>>>,
         methods: Vec<Box<Stmt>>,
     },
+    Const {
+        name: String,
+        type_: Type,
+        value: Box<Stmt>,
+    },
+    ConstantGroup {
+        constants: Vec<Box<Stmt>>,
+    },
     Package {
         path: String,
     },
@@ -133,6 +145,7 @@ pub struct SourceFile {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Type {
     pub name: String,
+    pub is_array: bool,
     pub generics: Option<Vec<Box<Type>>>,
 }
 
@@ -401,6 +414,21 @@ impl fmt::Display for Stmt {
                 write!(f, " {{\n")?;
                 for method in methods {
                     write!(f, "{}\n", method)?;
+                }
+                write!(f, "}}")
+            }
+            Stmt::ConstantGroup { constants } => {
+                for constant in constants {
+                    write!(f, "{}\n", constant)?;
+                }
+                Ok(())
+            }
+            Stmt::Const { name, type_, value } => write!(f, "const {}:{} {};", name, type_, value),
+            Stmt::StructInstantiation { name, members } => {
+                write!(f, "{}", name)?;
+                write!(f, "{{")?;
+                for (name, value) in members {
+                    write!(f, "{}: {},", name, value)?;
                 }
                 write!(f, "}}")
             }
