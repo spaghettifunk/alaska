@@ -17,7 +17,7 @@ where
         );
         let path = self.text(ident).to_string();
         self.consume(T![;]);
-        Ok(ast::Stmt::Package { path })
+        Ok(ast::Stmt::Package { name: path })
     }
 
     fn parse_use(&mut self) -> Result<ast::Stmt> {
@@ -234,7 +234,7 @@ where
         }
         self.consume(T!['}']);
 
-        Ok(ast::Stmt::Function {
+        Ok(ast::Stmt::FunctionDeclaration {
             is_public,
             name: fn_name,
             generics,
@@ -338,7 +338,7 @@ where
 
         self.consume(T!['}']);
 
-        Ok(ast::Stmt::Struct {
+        Ok(ast::Stmt::StructDeclaration {
             is_public,
             name: struct_name,
             type_: struct_type,
@@ -580,7 +580,7 @@ where
             }
         }
         self.consume(T![')']);
-        Ok(ast::Stmt::FnCall { function: name, args })
+        Ok(ast::Stmt::FunctionCall { name, args })
     }
 
     fn parse_assignment(&mut self, name: String) -> Result<ast::Stmt> {
@@ -591,7 +591,7 @@ where
         self.consume(T![;]);
 
         Ok(ast::Stmt::Assignment {
-            var_name: name,
+            name,
             value: Box::new(value?),
         })
     }
@@ -600,7 +600,7 @@ where
         self.consume(T![.]);
         let stmt = self.parse_statement();
         Ok(ast::Stmt::StructAccess {
-            struct_name,
+            name: struct_name,
             field: Box::new(stmt?),
         })
     }
@@ -751,7 +751,7 @@ where
         }
         self.consume(T!['}']);
 
-        Ok(ast::Stmt::ImplDefinition {
+        Ok(ast::Stmt::ImplDeclaration {
             name,
             generics,
             interfaces,
@@ -777,7 +777,7 @@ where
         let value = self.expression();
         self.consume(T![;]);
 
-        Ok(ast::Stmt::Const {
+        Ok(ast::Stmt::Constant {
             name,
             type_,
             value: Box::new(value?),
@@ -963,6 +963,11 @@ where
                 },
             }
         }
+
+        if pkg_counter == 0 {
+            return Err(ParseError::MissingPackageStatement);
+        }
+
         Ok(ast::SourceFile {
             name: filename.to_string(),
             statements: stmts,
@@ -1189,7 +1194,7 @@ mod tests {
 
         let assignment_stmt = &stmts[0];
         match assignment_stmt {
-            ast::Stmt::Assignment { var_name, .. } => {
+            ast::Stmt::Assignment { name: var_name, .. } => {
                 assert_eq!(var_name, "x");
             }
             _ => unreachable!(),
@@ -1213,12 +1218,12 @@ mod tests {
                 assert_eq!(body.len(), 2);
                 let x_assignment = &body[0];
                 match x_assignment {
-                    ast::Stmt::Assignment { var_name, .. } => assert_eq!(var_name, "x"),
+                    ast::Stmt::Assignment { name: var_name, .. } => assert_eq!(var_name, "x"),
                     _ => unreachable!(),
                 }
                 let y_assignment = &body[1];
                 match y_assignment {
-                    ast::Stmt::Assignment { var_name, .. } => assert_eq!(var_name, "y"),
+                    ast::Stmt::Assignment { name: var_name, .. } => assert_eq!(var_name, "y"),
                     _ => unreachable!(),
                 }
 
@@ -1251,7 +1256,7 @@ mod tests {
                         }
                         let x_assignment = &body[1];
                         match x_assignment {
-                            ast::Stmt::Assignment { var_name, .. } => assert_eq!(var_name, "x"),
+                            ast::Stmt::Assignment { name: var_name, .. } => assert_eq!(var_name, "x"),
                             _ => unreachable!(),
                         }
 
@@ -1268,7 +1273,7 @@ mod tests {
 
                         let x_assignment = &stmts[0];
                         match x_assignment {
-                            ast::Stmt::Assignment { var_name, .. } => assert_eq!(var_name, "x"),
+                            ast::Stmt::Assignment { name: var_name, .. } => assert_eq!(var_name, "x"),
                             _ => unreachable!(),
                         }
                     }
@@ -1347,7 +1352,7 @@ mod tests {
         );
 
         match item {
-            ast::Stmt::Function {
+            ast::Stmt::FunctionDeclaration {
                 is_public: false,
                 name,
                 generics,
@@ -1398,7 +1403,7 @@ mod tests {
         );
 
         match item {
-            ast::Stmt::Function {
+            ast::Stmt::FunctionDeclaration {
                 is_public: false,
                 name,
                 generics,
@@ -1439,7 +1444,7 @@ mod tests {
         );
 
         match item {
-            ast::Stmt::Struct {
+            ast::Stmt::StructDeclaration {
                 is_public,
                 name,
                 members,

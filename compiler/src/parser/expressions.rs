@@ -76,10 +76,7 @@ where
         }
         self.consume(T![')']);
 
-        Ok(ast::Stmt::FnCall {
-            function: fn_name,
-            args,
-        })
+        Ok(ast::Stmt::FunctionCall { name: fn_name, args })
     }
 
     fn parse_exp_array_access(&mut self, array: String) -> Result<ast::Stmt> {
@@ -88,7 +85,7 @@ where
         self.consume(T![']']);
 
         Ok(ast::Stmt::ArrayAccess {
-            array,
+            name: array,
             index: Box::new(index?),
         })
     }
@@ -151,7 +148,7 @@ where
                     self.consume(T![.]);
                     let expr = self.expression();
                     Ok(ast::Stmt::StructAccess {
-                        struct_name: name,
+                        name,
                         field: Box::new(expr?),
                     })
                 } else if self.at(T!['{']) {
@@ -390,8 +387,8 @@ mod tests {
         let expr = parse("bar (  x, 2)");
         assert_eq!(
             expr,
-            ast::Stmt::FnCall {
-                function: "bar".to_string(),
+            ast::Stmt::FunctionCall {
+                name: "bar".to_string(),
                 args: vec![
                     ast::Stmt::Identifier("x".to_string()),
                     ast::Stmt::Literal(ast::Lit::Int(2)),

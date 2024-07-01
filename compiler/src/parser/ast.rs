@@ -11,19 +11,19 @@ pub enum Stmt {
         type_: Option<Box<Type>>,
         methods: Vec<Box<Stmt>>,
     },
-    FnCall {
-        function: String,
+    FunctionCall {
+        name: String,
         args: Vec<Stmt>,
     },
     Array {
         elements: Vec<Stmt>,
     },
     ArrayAccess {
-        array: String,
+        name: String,
         index: Box<Stmt>,
     },
     StructAccess {
-        struct_name: String,
+        name: String,
         field: Box<Stmt>,
     },
     PrefixOp {
@@ -53,7 +53,7 @@ pub enum Stmt {
         statement: Box<Stmt>,
     },
     Assignment {
-        var_name: String,
+        name: String,
         value: Box<Stmt>,
     },
     IfStmt {
@@ -65,10 +65,6 @@ pub enum Stmt {
         iterator: String,
         range: Box<Stmt>,
         body: Vec<Stmt>,
-    },
-    FunctionCall {
-        fn_name: String,
-        args: Vec<Stmt>,
     },
     WhileStmt {
         condition: Box<Stmt>,
@@ -94,7 +90,7 @@ pub enum Stmt {
         name: String,
         members: Vec<String>,
     },
-    Struct {
+    StructDeclaration {
         is_public: bool,
         name: String,
         type_: Type,
@@ -110,7 +106,7 @@ pub enum Stmt {
         parameters: Vec<(String, Type)>,
         return_type: Option<Vec<Box<Type>>>,
     },
-    Function {
+    FunctionDeclaration {
         is_public: bool,
         name: String,
         generics: Option<Vec<Box<Type>>>,
@@ -118,13 +114,13 @@ pub enum Stmt {
         body: Vec<Stmt>,
         return_type: Option<Vec<Box<Type>>>,
     },
-    ImplDefinition {
+    ImplDeclaration {
         name: String,
         generics: Option<Vec<Box<Type>>>,
         interfaces: Option<Vec<Box<Type>>>,
         methods: Vec<Box<Stmt>>,
     },
-    Const {
+    Constant {
         name: String,
         type_: Type,
         value: Box<Stmt>,
@@ -133,7 +129,7 @@ pub enum Stmt {
         constants: Vec<Box<Stmt>>,
     },
     Package {
-        path: String,
+        name: String,
     },
     Use {
         name: String,
@@ -152,6 +148,19 @@ pub struct Type {
     pub name: String,
     pub is_array: bool,
     pub generics: Option<Vec<Box<Type>>>,
+}
+
+impl Type {
+    // used to initialize a type with default values
+    // this is used in the samentic analysis step where
+    // we need to collect all the symbols in the fist pass
+    pub fn default() -> Self {
+        Type {
+            name: String::new(),
+            is_array: false,
+            generics: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -204,17 +213,17 @@ impl fmt::Display for Stmt {
         match self {
             Stmt::Literal(lit) => write!(f, "{}", lit),
             Stmt::Identifier(name) => write!(f, "{}", name),
-            Stmt::FnCall {
-                function: fn_name,
-                args,
-            } => {
-                write!(f, "{}(", fn_name)?;
+            Stmt::FunctionCall { name, args } => {
+                write!(f, "{}(", name)?;
                 for arg in args {
                     write!(f, "{},", arg)?;
                 }
                 write!(f, ")")
             }
-            Stmt::StructAccess { struct_name, field } => write!(f, "{}.{}", struct_name, field),
+            Stmt::StructAccess {
+                name: struct_name,
+                field,
+            } => write!(f, "{}.{}", struct_name, field),
             Stmt::Array { elements } => {
                 write!(f, "[")?;
                 for element in elements {
@@ -222,7 +231,7 @@ impl fmt::Display for Stmt {
                 }
                 write!(f, "]")
             }
-            Stmt::ArrayAccess { array, index } => write!(f, "{}[{}]", array, index),
+            Stmt::ArrayAccess { name: array, index } => write!(f, "{}[{}]", array, index),
             Stmt::PrefixOp { op, expr } => write!(f, "({} {})", op, expr),
             Stmt::InfixOp { op, lhs, rhs } => write!(f, "({} {} {})", lhs, op, rhs),
             Stmt::PostfixOp { op, expr } => write!(f, "({} {})", expr, op),
@@ -232,7 +241,7 @@ impl fmt::Display for Stmt {
                 identifier: var_name,
                 statement: value,
             } => write!(f, "let {} = {};", var_name, value),
-            Stmt::Assignment { var_name, value } => write!(f, "{} = {};", var_name, value),
+            Stmt::Assignment { name: var_name, value } => write!(f, "{} = {};", var_name, value),
             Stmt::IfStmt {
                 condition,
                 body,
@@ -255,8 +264,8 @@ impl fmt::Display for Stmt {
                 }
                 write!(f, "}}")
             }
-            Stmt::FunctionCall { fn_name, args } => {
-                write!(f, "{}(", fn_name)?;
+            Stmt::FunctionCall { args, name } => {
+                write!(f, "{}(", name)?;
                 for arg in args {
                     write!(f, "{},", arg)?;
                 }
@@ -294,7 +303,7 @@ impl fmt::Display for Stmt {
                 }
                 Ok(())
             }
-            Stmt::Struct {
+            Stmt::StructDeclaration {
                 is_public,
                 name,
                 type_,
@@ -309,7 +318,7 @@ impl fmt::Display for Stmt {
                 }
                 write!(f, "}}")
             }
-            Stmt::Function {
+            Stmt::FunctionDeclaration {
                 is_public,
                 name,
                 generics,
@@ -347,7 +356,7 @@ impl fmt::Display for Stmt {
                 }
                 write!(f, "}}")
             }
-            Stmt::Package { path } => write!(f, "package {};", path),
+            Stmt::Package { name: path } => write!(f, "package {};", path),
             Stmt::Use { name } => write!(f, "use {};", name),
             Stmt::Defer { stmt } => write!(f, "defer {{\n{}\n}}", stmt),
             Stmt::Empty => write!(f, ""),
@@ -396,7 +405,7 @@ impl fmt::Display for Stmt {
                 }
                 write!(f, "{}: {}", name, type_)
             }
-            Stmt::ImplDefinition {
+            Stmt::ImplDeclaration {
                 name,
                 generics,
                 interfaces,
@@ -428,7 +437,7 @@ impl fmt::Display for Stmt {
                 }
                 Ok(())
             }
-            Stmt::Const { name, type_, value } => write!(f, "const {}:{} {};", name, type_, value),
+            Stmt::Constant { name, type_, value } => write!(f, "const {}:{} {};", name, type_, value),
             Stmt::StructInstantiation { name, members } => {
                 write!(f, "{}", name)?;
                 write!(f, "{{")?;

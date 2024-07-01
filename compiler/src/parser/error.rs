@@ -13,6 +13,7 @@ pub enum ParseError {
     InvalidExpressionStatement {
         position: Span,
     },
+    MissingPackageStatement,
 }
 
 impl From<&ParseError> for String {
@@ -35,6 +36,9 @@ impl From<&ParseError> for String {
                 "Expression is invalid as statement at {}-{}",
                 position.start, position.end,
             ),
+            ParseError::MissingPackageStatement => {
+                format!("Missing package statement at {}-{}", 0, 1,)
+            }
         }
     }
 }
