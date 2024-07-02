@@ -53,30 +53,51 @@ impl Symbol {
 }
 
 pub struct GlobalSymbolTable {
-    pub packages: HashMap<String, PackageSymbolTable>,
+    packages: HashMap<String, PackageSymbolTable>,
+    current_package_name: String,
 }
 
 impl GlobalSymbolTable {
     pub fn new() -> GlobalSymbolTable {
         GlobalSymbolTable {
             packages: HashMap::new(),
+            current_package_name: String::new(),
         }
     }
 
-    pub fn insert(&mut self, package_name: &str, symbol: Symbol) {
+    pub fn set_current_package_name(&mut self, name: String) {
+        self.current_package_name = name;
+    }
+
+    pub fn add_package_symbol_table(&mut self, package_name: &str) {
         if !self.packages.contains_key(package_name) {
             self.packages.insert(
                 package_name.to_string(),
                 PackageSymbolTable::new(package_name.to_string()),
             );
         }
-
-        let package_symbol_table = self.packages.get_mut(package_name).unwrap();
-        package_symbol_table.insert(symbol);
     }
 
-    pub fn get_package(&self, package_name: &str) -> Option<&PackageSymbolTable> {
-        self.packages.get(package_name)
+    // TODO:: this should return a Result since we don't want to brutally panic
+    pub fn insert_symbol_package(&mut self, package_name: &str, symbol: Symbol) {
+        if self.packages.contains_key(package_name) {
+            self.packages.get_mut(package_name).unwrap().insert(symbol);
+        } else {
+            panic!("Package `{}` not found in the global symbol table", package_name);
+        }
+    }
+
+    // TODO:: this should return a Result since we don't want to brutally panic
+    pub fn get_package(&mut self, package_name: &str) -> Option<&mut PackageSymbolTable> {
+        if self.packages.contains_key(package_name) {
+            return Some(self.packages.get_mut(package_name).unwrap());
+        } else {
+            None
+        }
+    }
+
+    pub fn get_current_package(&mut self) -> &mut PackageSymbolTable {
+        self.packages.get_mut(&self.current_package_name).unwrap()
     }
 }
 
@@ -90,6 +111,8 @@ pub struct PackageSymbolTable {
     interfaces: HashMap<String, Symbol>,
     structs: HashMap<String, Symbol>,
     impls: HashMap<String, Symbol>,
+
+    current_scope_level: usize,
 
     nested_symbol_tables: Vec<NestedSymbolTable>,
 }
@@ -105,6 +128,7 @@ impl PackageSymbolTable {
             structs: HashMap::new(),
             impls: HashMap::new(),
             nested_symbol_tables: Vec::new(),
+            current_scope_level: 0,
         }
     }
 
@@ -136,7 +160,14 @@ impl PackageSymbolTable {
             SymbolKind::Impl => {
                 self.impls.insert(symbol.name.clone(), symbol);
             }
-            _ => {}
+            SymbolKind::Parameter => todo!(),
+            SymbolKind::Constant => todo!(),
+            SymbolKind::EnumMember => todo!(),
+            SymbolKind::InterfaceFunction => todo!(),
+            SymbolKind::StructMember => todo!(),
+            SymbolKind::Return => todo!(),
+            SymbolKind::Use => todo!(),
+            SymbolKind::Package => todo!(),
         }
     }
 
@@ -164,16 +195,28 @@ impl PackageSymbolTable {
         self.impls.get(name)
     }
 
-    pub fn add_nested_symbol_table(&mut self, nested_symbol_table: NestedSymbolTable) {
-        self.nested_symbol_tables.push(nested_symbol_table);
+    pub fn enter_scope(&mut self, name: String) {
+        self.current_scope_level += 1;
+        if self.nested_symbol_tables.len() == self.current_scope_level {
+            self.nested_symbol_tables.push(NestedSymbolTable::new(name));
+        }
+    }
+
+    pub fn exit_scope(&mut self) {
+        if self.current_scope_level == 0 {
+            return;
+        }
+        self.current_scope_level -= 1;
+    }
+
+    pub fn get_current_nested_scope(&mut self) -> &mut NestedSymbolTable {
+        self.nested_symbol_tables.get_mut(self.current_scope_level).unwrap()
     }
 }
 
 pub struct NestedSymbolTable {
     name: String, // this is the same name of the function, impl, etc
     identifiers: HashMap<String, Symbol>,
-
-    nested_symbol_table: Vec<NestedSymbolTable>,
 }
 
 impl NestedSymbolTable {
@@ -181,7 +224,6 @@ impl NestedSymbolTable {
         NestedSymbolTable {
             name,
             identifiers: HashMap::new(),
-            nested_symbol_table: Vec::new(),
         }
     }
 
@@ -191,9 +233,5 @@ impl NestedSymbolTable {
 
     pub fn get_identifier(&self, name: &str) -> Option<&Symbol> {
         self.identifiers.get(name)
-    }
-
-    pub fn add_nested_symbol_table(&mut self, nested_symbol_table: NestedSymbolTable) {
-        self.nested_symbol_table.push(nested_symbol_table);
     }
 }

@@ -100,7 +100,7 @@ pub enum Stmt {
         name: String,
         members: Vec<(String, Box<Stmt>)>,
     },
-    FunctionSignature {
+    InterfaceFunctionSignature {
         name: String,
         generics: Option<Vec<Box<Type>>>,
         parameters: Vec<(String, Type)>,
@@ -370,7 +370,7 @@ impl fmt::Display for Stmt {
                 }
                 write!(f, "}}")
             }
-            Stmt::FunctionSignature {
+            Stmt::InterfaceFunctionSignature {
                 name,
                 generics,
                 parameters,

@@ -115,14 +115,14 @@ where
             }
         }
         if return_types.is_empty() {
-            Ok(ast::Stmt::FunctionSignature {
+            Ok(ast::Stmt::InterfaceFunctionSignature {
                 name: fn_name,
                 generics,
                 parameters,
                 return_type: None,
             })
         } else {
-            Ok(ast::Stmt::FunctionSignature {
+            Ok(ast::Stmt::InterfaceFunctionSignature {
                 name: fn_name,
                 generics,
                 parameters,
