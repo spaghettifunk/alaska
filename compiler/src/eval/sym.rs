@@ -1,237 +1,146 @@
-use std::any::Any;
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
-pub enum SymbolKind {
-    Identifier,
-    Function,
-    Parameter,
-    Constant,
-    Enum,
-    EnumMember,
-    Interface,
-    InterfaceFunction,
-    Struct,
-    StructMember,
-    Return,
-    Impl,
-    Use,
-    Package,
+use crate::parser::ast::Type;
+
+#[derive(Debug, Clone)]
+pub enum Symbol {
+    Variable(String), // Variable with its type as a string
+    Constant {
+        name: String,
+        type_: Type,   // Constant type
+        value: String, // Constant with its value as a String
+    },
+    Struct {
+        is_public: bool,
+        name: String,
+        table: Rc<RefCell<SymbolTable>>,
+    }, // Struct with its own symbol table
+    StructMember {
+        is_public: bool,
+        name: String,
+        type_: String, // Struct member type
+    },
+    Interface(Rc<RefCell<SymbolTable>>), // Interface with its own symbol table
+    Enum {
+        is_public: bool,
+        name: String,
+        table: Rc<RefCell<SymbolTable>>,
+    },
+    EnumMember {
+        name: String,
+        value: String, // Enum member value as a String
+    },
+    Function {
+        name: String,
+        parameters: Vec<(String, Type)>, // Vector of (parameter name, parameter type)
+        return_type: Option<Vec<Type>>,  // Optional vector of return types
+        body: Rc<RefCell<SymbolTable>>,  // Function body with its own symbol table
+    },
+    MainFunction {
+        body: Rc<RefCell<SymbolTable>>, // Main function body with its own symbol table
+    },
+    ForLoop {
+        iterator: String,
+        iterable: String,
+        body: Rc<RefCell<SymbolTable>>, // For loop body with its own symbol table
+    },
+    WhileLoop {
+        condition: String,
+        body: Rc<RefCell<SymbolTable>>, // While loop body with its own symbol table
+    },
+    IfStatement {
+        condition: String,
+        then_body: Rc<RefCell<SymbolTable>>, // Then body with its own symbol table
+        else_body: Option<Rc<RefCell<SymbolTable>>>, // Optional else body with its own symbol table
+    },
+    Package(String), // Package name
+    Use(String),     // Use statement
 }
 
-pub struct Symbol {
-    name: String,        // Name of the symbol or Lexeme token
-    kind: SymbolKind,    // Kind of symbol
-    value: Box<dyn Any>, // Value of the symbol
-    is_public: bool,     // Is the symbol public
+#[derive(Debug, Clone)]
+pub struct SymbolTable {
+    name: String,
+    symbols: HashMap<String, Symbol>,
+    parent: Option<Rc<RefCell<SymbolTable>>>,
 }
 
-impl Symbol {
-    pub fn new(name: String, kind: SymbolKind, value: Box<dyn Any>, is_public: bool) -> Symbol {
-        Symbol {
+impl SymbolTable {
+    pub fn new(name: String, parent: Option<Rc<RefCell<SymbolTable>>>) -> Self {
+        SymbolTable {
             name,
-            kind,
-            value,
-            is_public,
+            symbols: HashMap::new(),
+            parent,
         }
     }
 
-    pub fn get_name(&self) -> &str {
-        &self.name
+    pub fn add_symbol(&mut self, name: String, symbol: Symbol) {
+        self.symbols.insert(name, symbol);
     }
 
-    pub fn get_kind(&self) -> &SymbolKind {
-        &self.kind
-    }
-
-    pub fn get_value(&self) -> &Box<dyn Any> {
-        &self.value
-    }
-
-    pub fn is_public(&self) -> bool {
-        self.is_public
+    pub fn lookup(&self, name: &str) -> Option<Symbol> {
+        match self.symbols.get(name) {
+            Some(symbol) => Some(symbol.clone()),
+            None => match &self.parent {
+                Some(parent_scope) => parent_scope.borrow().lookup(name),
+                None => None,
+            },
+        }
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct GlobalSymbolTable {
-    packages: HashMap<String, PackageSymbolTable>,
-    current_package_name: String,
+    // Global symbol table in which all the symbols are stored
+    // here we store mostly at package level
+    scopes: Vec<Rc<RefCell<SymbolTable>>>,
+    current_scope_level: usize,
 }
 
 impl GlobalSymbolTable {
-    pub fn new() -> GlobalSymbolTable {
+    pub fn new() -> Self {
         GlobalSymbolTable {
-            packages: HashMap::new(),
-            current_package_name: String::new(),
-        }
-    }
-
-    pub fn set_current_package_name(&mut self, name: String) {
-        self.current_package_name = name;
-    }
-
-    pub fn add_package_symbol_table(&mut self, package_name: &str) {
-        if !self.packages.contains_key(package_name) {
-            self.packages.insert(
-                package_name.to_string(),
-                PackageSymbolTable::new(package_name.to_string()),
-            );
-        }
-    }
-
-    // TODO:: this should return a Result since we don't want to brutally panic
-    pub fn insert_symbol_package(&mut self, package_name: &str, symbol: Symbol) {
-        if self.packages.contains_key(package_name) {
-            self.packages.get_mut(package_name).unwrap().insert(symbol);
-        } else {
-            panic!("Package `{}` not found in the global symbol table", package_name);
-        }
-    }
-
-    // TODO:: this should return a Result since we don't want to brutally panic
-    pub fn get_package(&mut self, package_name: &str) -> Option<&mut PackageSymbolTable> {
-        if self.packages.contains_key(package_name) {
-            return Some(self.packages.get_mut(package_name).unwrap());
-        } else {
-            None
-        }
-    }
-
-    pub fn get_current_package(&mut self) -> &mut PackageSymbolTable {
-        self.packages.get_mut(&self.current_package_name).unwrap()
-    }
-}
-
-// TODO: the values don't yet contain generics types
-pub struct PackageSymbolTable {
-    name: String, // package name
-    // identifiers: (Name, Symbol) --> this can contain variables, constants, uses, parameters, return values, etc
-    identifiers: HashMap<String, Symbol>,
-    enums: HashMap<String, Symbol>,
-    functions: HashMap<String, Symbol>,
-    interfaces: HashMap<String, Symbol>,
-    structs: HashMap<String, Symbol>,
-    impls: HashMap<String, Symbol>,
-
-    current_scope_level: usize,
-
-    nested_symbol_tables: Vec<NestedSymbolTable>,
-}
-
-impl PackageSymbolTable {
-    pub fn new(name: String) -> PackageSymbolTable {
-        PackageSymbolTable {
-            name,
-            identifiers: HashMap::new(),
-            enums: HashMap::new(),
-            functions: HashMap::new(),
-            interfaces: HashMap::new(),
-            structs: HashMap::new(),
-            impls: HashMap::new(),
-            nested_symbol_tables: Vec::new(),
+            scopes: Vec::new(),
             current_scope_level: 0,
         }
     }
 
-    pub fn set_name(&mut self, name: String) {
-        self.name = name;
-    }
-
-    pub fn get_name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn insert(&mut self, symbol: Symbol) {
-        match symbol.kind {
-            SymbolKind::Identifier => {
-                self.identifiers.insert(symbol.name.clone(), symbol);
+    pub fn lookup_symbol(&self, name: &str) -> Option<Symbol> {
+        for symbol_table in self.scopes.iter().rev() {
+            match symbol_table.borrow().lookup(name) {
+                Some(symbol) => return Some(symbol),
+                None => continue,
             }
-            SymbolKind::Enum => {
-                self.enums.insert(symbol.name.clone(), symbol);
-            }
-            SymbolKind::Function => {
-                self.functions.insert(symbol.name.clone(), symbol);
-            }
-            SymbolKind::Interface => {
-                self.interfaces.insert(symbol.name.clone(), symbol);
-            }
-            SymbolKind::Struct => {
-                self.structs.insert(symbol.name.clone(), symbol);
-            }
-            SymbolKind::Impl => {
-                self.impls.insert(symbol.name.clone(), symbol);
-            }
-            SymbolKind::Parameter => todo!(),
-            SymbolKind::Constant => todo!(),
-            SymbolKind::EnumMember => todo!(),
-            SymbolKind::InterfaceFunction => todo!(),
-            SymbolKind::StructMember => todo!(),
-            SymbolKind::Return => todo!(),
-            SymbolKind::Use => todo!(),
-            SymbolKind::Package => todo!(),
         }
+        None
     }
 
-    pub fn get_identifier(&self, name: &str) -> Option<&Symbol> {
-        self.identifiers.get(name)
-    }
-
-    pub fn get_enum(&self, name: &str) -> Option<&Symbol> {
-        self.enums.get(name)
-    }
-
-    pub fn get_function(&self, name: &str) -> Option<&Symbol> {
-        self.functions.get(name)
-    }
-
-    pub fn get_interface(&self, name: &str) -> Option<&Symbol> {
-        self.interfaces.get(name)
-    }
-
-    pub fn get_struct(&self, name: &str) -> Option<&Symbol> {
-        self.structs.get(name)
-    }
-
-    pub fn get_impl(&self, name: &str) -> Option<&Symbol> {
-        self.impls.get(name)
+    pub fn get_symbol_table_by_name(&self, name: &str) -> Option<Rc<RefCell<SymbolTable>>> {
+        for symbol_table in self.scopes.iter().rev() {
+            if symbol_table.borrow().name == name {
+                return Some(symbol_table.clone());
+            }
+        }
+        None
     }
 
     pub fn enter_scope(&mut self, name: String) {
+        let parent = self.scopes.last().cloned();
+        let symbol_table = Rc::new(RefCell::new(SymbolTable::new(name, parent)));
+
+        self.scopes.push(symbol_table);
         self.current_scope_level += 1;
-        if self.nested_symbol_tables.len() == self.current_scope_level {
-            self.nested_symbol_tables.push(NestedSymbolTable::new(name));
-        }
     }
 
     pub fn exit_scope(&mut self) {
         if self.current_scope_level == 0 {
-            return;
+            panic!("Cannot exit the global scope");
         }
         self.current_scope_level -= 1;
     }
 
-    pub fn get_current_nested_scope(&mut self) -> &mut NestedSymbolTable {
-        self.nested_symbol_tables.get_mut(self.current_scope_level).unwrap()
-    }
-}
-
-pub struct NestedSymbolTable {
-    name: String, // this is the same name of the function, impl, etc
-    identifiers: HashMap<String, Symbol>,
-}
-
-impl NestedSymbolTable {
-    pub fn new(name: String) -> NestedSymbolTable {
-        NestedSymbolTable {
-            name,
-            identifiers: HashMap::new(),
-        }
-    }
-
-    pub fn insert(&mut self, symbol: Symbol) {
-        self.identifiers.insert(symbol.name.clone(), symbol);
-    }
-
-    pub fn get_identifier(&self, name: &str) -> Option<&Symbol> {
-        self.identifiers.get(name)
+    pub fn current_scope(&mut self) -> Option<&mut Rc<RefCell<SymbolTable>>> {
+        self.scopes.get_mut(self.current_scope_level)
     }
 }

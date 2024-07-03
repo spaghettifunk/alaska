@@ -171,6 +171,9 @@ pub enum Lit {
     Bool(bool),
     Char(char),
     Nil(),
+    Struct(String),    // Struct type with the name of the struct
+    Interface(String), // Interface type with the name of the interface
+    Enum(String),      // Enum type with the name of the enum
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -204,6 +207,9 @@ impl fmt::Display for Lit {
             Lit::Bool(b) => write!(f, "{}", b),
             Lit::Char(c) => write!(f, "'{}'", c),
             Lit::Nil() => write!(f, "nil"),
+            Lit::Struct(s) => write!(f, "struct {}", s),
+            Lit::Interface(i) => write!(f, "interface {}", i),
+            Lit::Enum(e) => write!(f, "enum {}", e),
         }
     }
 }

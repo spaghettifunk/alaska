@@ -1,19 +1,21 @@
 mod sym;
 
-use std::borrow::{Borrow, BorrowMut};
+use std::{cell::RefCell, fmt::format, rc::Rc};
 
-use sym::{GlobalSymbolTable, NestedSymbolTable, Symbol, SymbolKind};
+use sym::{GlobalSymbolTable, Symbol, SymbolTable};
 
 use crate::parser::ast::{Stmt, AST};
 
 pub struct SemanticAnalyzer {
-    global_symbol_table: GlobalSymbolTable,
+    global_scope: GlobalSymbolTable,
+    current_package: String,
 }
 
 impl SemanticAnalyzer {
     pub fn new() -> SemanticAnalyzer {
         SemanticAnalyzer {
-            global_symbol_table: GlobalSymbolTable::new(),
+            global_scope: GlobalSymbolTable::new(),
+            current_package: String::new(),
         }
     }
 
@@ -34,75 +36,20 @@ impl SemanticAnalyzer {
 
     fn build_symbol_table(&mut self, stmt: Stmt) -> Result<(), String> {
         match stmt {
-            Stmt::Package { name } => {
-                // the word `package `name` can be used in several files
-                // it's important that we use the correct `PackageSymbolTable`
-                // object for the rest of the source file
-                if !self.global_symbol_table.get_package(&name).is_none() {
-                    self.global_symbol_table.set_current_package_name(name.clone());
-                    return Ok(());
-                }
-
-                // create a new `PackageSymbolTable` object
-                self.global_symbol_table.add_package_symbol_table(&name);
-                self.global_symbol_table.set_current_package_name(name.clone());
-
-                Ok(())
-            }
-            Stmt::Literal(_) => {
-                // nothing to do here
-                Ok(())
-            }
-            Stmt::Identifier(name) => {
-                let pkg_table = self.global_symbol_table.get_current_package();
-                pkg_table.insert(Symbol::new(name.clone(), SymbolKind::Identifier, Box::new(()), false));
-
-                Ok(())
-            }
-            Stmt::Interface { name, type_, methods } => {
-                // TODO: this is ugly! the borrow checker is not happy with me
-                {
-                    let pkg_table = self.global_symbol_table.get_current_package();
-
-                    pkg_table.insert(Symbol::new(name.clone(), SymbolKind::Interface, Box::new(()), true));
-
-                    // create new scope for the function signatures
-                    pkg_table.enter_scope(name.clone());
-
-                    let nested_symbol_table = pkg_table.get_current_nested_scope();
-
-                    for method in methods {
-                        self.build_symbol_table(*method)?;
-                    }
-                }
-
-                // exit scope
-                let pkg_table = self.global_symbol_table.get_current_package();
-                pkg_table.exit_scope();
-
-                Ok(())
-            }
-            Stmt::FunctionCall { name, args } => {
-                // validate that the function exists
-                let pkg_table = self.global_symbol_table.get_current_package();
-                let nested_symbol_table = pkg_table.get_current_nested_scope();
-
-                if nested_symbol_table.get_identifier(&name).is_none() {
-                    return Err(format!("function `{}` not found", name));
-                }
-
-                for arg in args {
-                    self.build_symbol_table(arg)?;
-                }
-
-                Ok(())
-            }
+            Stmt::Literal(_) => Ok(()),
+            Stmt::Identifier(name) => todo!(),
+            Stmt::Interface { name, type_, methods } => todo!(),
+            Stmt::FunctionCall { name, args } => todo!(),
             Stmt::Array { elements } => todo!(),
             Stmt::ArrayAccess { name, index } => todo!(),
             Stmt::StructAccess { name, field } => todo!(),
             Stmt::PrefixOp { op, expr } => todo!(),
             Stmt::InfixOp { op, lhs, rhs } => todo!(),
             Stmt::PostfixOp { op, expr } => todo!(),
+            Stmt::Comment { text } => Ok(()),
+            Stmt::BlockComment { text } => Ok(()),
+            Stmt::Defer { stmt } => todo!(),
+            Stmt::Let { identifier, statement } => todo!(),
             Stmt::Assignment { name, value } => todo!(),
             Stmt::IfStmt {
                 condition,
@@ -112,76 +59,60 @@ impl SemanticAnalyzer {
             Stmt::RangeStmt { iterator, range, body } => todo!(),
             Stmt::WhileStmt { condition, body } => todo!(),
             Stmt::MatchStmt { value, arms } => todo!(),
-            Stmt::Defer { stmt } => {
-                self.build_symbol_table(*stmt)?;
-                Ok(())
-            }
-            Stmt::Let { identifier, statement } => {
-                let pkg_table = self.global_symbol_table.get_current_package();
-                let nested_symbol_table = pkg_table.get_current_nested_scope();
-
-                if nested_symbol_table.get_identifier(&identifier).is_some() {
-                    return Err(format!("variable `{}` already declared", identifier));
-                }
-
-                nested_symbol_table.insert(Symbol::new(
-                    identifier.clone(),
-                    SymbolKind::Identifier,
-                    Box::new(()),
-                    false,
-                ));
-
-                return self.build_symbol_table(*statement);
-            }
-            Stmt::Block { stmts } => {
-                for stmt in stmts {
-                    self.build_symbol_table(stmt)?;
-                }
-                Ok(())
-            }
-            Stmt::Return { value } => {
-                for ret in value {
-                    self.build_symbol_table(*ret.clone())?;
-                }
-                Ok(())
-            }
-            Stmt::StructMember { is_public, name, type_ } => {
-                let pkg_table = self.global_symbol_table.get_current_package();
-                let nested_symbol_table = pkg_table.get_current_nested_scope();
-                nested_symbol_table.insert(Symbol::new(
-                    name.clone(),
-                    SymbolKind::StructMember,
-                    Box::new(()),
-                    is_public,
-                ));
-
-                Ok(())
-            }
+            Stmt::Block { stmts } => todo!(),
+            Stmt::Return { value } => todo!(),
+            Stmt::StructMember { is_public, name, type_ } => todo!(),
             Stmt::Enum {
                 is_public,
                 name,
                 members,
             } => {
-                let pkg_table = self.global_symbol_table.get_current_package();
-                pkg_table.insert(Symbol::new(name.clone(), SymbolKind::Enum, Box::new(()), is_public));
-
-                // create new scope for the enum members
-                pkg_table.enter_scope(name.clone());
-
-                let nested_symbol_table = pkg_table.get_current_nested_scope();
-
-                for member in members {
-                    nested_symbol_table.insert(Symbol::new(
-                        member.clone(),
-                        SymbolKind::EnumMember,
-                        Box::new(()),
-                        is_public, // we use the enum visibility for the enum members
-                    ));
+                let enum_symbol = format!("enum.{}", name);
+                if self.global_scope.lookup_symbol(&enum_symbol).is_none() {
+                    let current_scope = self.global_scope.current_scope();
+                    match current_scope {
+                        Some(scope) => {
+                            scope.borrow_mut().add_symbol(
+                                enum_symbol.clone(),
+                                Symbol::Enum {
+                                    is_public,
+                                    name: name.clone(),
+                                    table: Rc::new(RefCell::new(SymbolTable::new(
+                                        enum_symbol.clone(),
+                                        Some(scope.clone()),
+                                    ))),
+                                },
+                            );
+                        }
+                        None => {
+                            Err(format!("error: global scope not found"))?;
+                        }
+                    }
+                } else {
+                    Err(format!("error: enum already declared"))?;
                 }
 
-                // exit scope
-                pkg_table.exit_scope();
+                let enum_scope = self.global_scope.get_symbol_table_by_name(&enum_symbol);
+                match enum_scope {
+                    Some(scope) => {
+                        for member in members {
+                            if scope.borrow().lookup(&member).is_some() {
+                                Err(format!("error: enum member already declared"))?;
+                            }
 
+                            scope.borrow_mut().add_symbol(
+                                member.clone(),
+                                Symbol::EnumMember {
+                                    name: member.clone(),
+                                    value: String::new(), // TODO: how do I save the value???
+                                },
+                            );
+                        }
+                    }
+                    None => {
+                        Err(format!("error: enum scope not found"))?;
+                    }
+                }
                 Ok(())
             }
             Stmt::StructDeclaration {
@@ -190,23 +121,54 @@ impl SemanticAnalyzer {
                 type_,
                 members,
             } => {
-                // TODO: this is ugly! the borrow checker is not happy with me
-                {
-                    let pkg_table = self.global_symbol_table.get_current_package();
-                    pkg_table.insert(Symbol::new(name.clone(), SymbolKind::Struct, Box::new(()), is_public));
-
-                    // create new scope for the struct members
-                    pkg_table.enter_scope(name.clone());
-
-                    for member in members {
-                        self.build_symbol_table(member)?;
+                let struct_symbol = format!("struct.{}", name);
+                if self.global_scope.lookup_symbol(&struct_symbol).is_none() {
+                    let current_scope = self.global_scope.current_scope();
+                    match current_scope {
+                        Some(scope) => {
+                            scope.borrow_mut().add_symbol(
+                                struct_symbol.clone(),
+                                Symbol::Struct {
+                                    is_public,
+                                    name: name.clone(),
+                                    table: Rc::new(RefCell::new(SymbolTable::new(
+                                        struct_symbol.clone(),
+                                        Some(scope.clone()),
+                                    ))),
+                                },
+                            );
+                        }
+                        None => {
+                            Err(format!("error: global scope not found"))?;
+                        }
                     }
+                } else {
+                    Err(format!("error: struct already declared"))?;
                 }
 
-                // exit scope
-                let pkg_table = self.global_symbol_table.get_current_package();
-                pkg_table.exit_scope();
-
+                let struct_scope = self.global_scope.get_symbol_table_by_name(&struct_symbol);
+                match struct_scope {
+                    Some(scope) => {
+                        for member in members {
+                            match member {
+                                Stmt::StructMember { is_public, name, type_ } => {
+                                    scope.borrow_mut().add_symbol(
+                                        name.clone(),
+                                        Symbol::StructMember {
+                                            is_public,
+                                            name,
+                                            type_: String::new(), // TODO: how do I save the type???
+                                        },
+                                    );
+                                }
+                                _ => continue,
+                            }
+                        }
+                    }
+                    None => {
+                        Err(format!("error: struct scope not found"))?;
+                    }
+                }
                 Ok(())
             }
             Stmt::StructInstantiation { name, members } => todo!(),
@@ -215,22 +177,7 @@ impl SemanticAnalyzer {
                 generics,
                 parameters,
                 return_type,
-            } => {
-                let pkg_table = self.global_symbol_table.get_current_package();
-                let nested_symbol_table = pkg_table.get_current_nested_scope();
-                nested_symbol_table.insert(Symbol::new(
-                    name.clone(),
-                    SymbolKind::InterfaceFunction,
-                    Box::new(()),
-                    true,
-                ));
-
-                for (name, tp) in parameters {
-                    nested_symbol_table.insert(Symbol::new(name.clone(), SymbolKind::Parameter, Box::new(()), false));
-                }
-
-                Ok(())
-            }
+            } => todo!(),
             Stmt::FunctionDeclaration {
                 is_public,
                 name,
@@ -238,66 +185,33 @@ impl SemanticAnalyzer {
                 parameters,
                 body,
                 return_type,
-            } => {
-                // TODO: this is ugly! the borrow checker is not happy with me
-                {
-                    let pkg_table = &mut self.global_symbol_table.get_current_package();
-
-                    pkg_table.insert(Symbol::new(name.clone(), SymbolKind::Function, Box::new(()), is_public));
-                    // create new scope for the function parameters
-                    pkg_table.enter_scope(name.clone());
-
-                    let nested_symbol_table = &mut pkg_table.get_current_nested_scope();
-
-                    for (name, tp) in parameters {
-                        nested_symbol_table.insert(Symbol::new(
-                            name.clone(),
-                            SymbolKind::Parameter,
-                            Box::new(()),
-                            false,
-                        ));
-                    }
-
-                    for stmt in body {
-                        self.build_symbol_table(stmt)?;
-                    }
-                }
-
-                // exit scope
-                let pkg_table = &mut self.global_symbol_table.get_current_package();
-                pkg_table.exit_scope();
-
-                Ok(())
-            }
+            } => todo!(),
             Stmt::ImplDeclaration {
                 name,
                 generics,
                 interfaces,
                 methods,
-            } => {
-                {
-                    let pkg_table = self.global_symbol_table.get_current_package();
-                    pkg_table.insert(Symbol::new(name.clone(), SymbolKind::Impl, Box::new(()), true));
-
-                    // create new scope for the function signatures
-                    pkg_table.enter_scope(name.clone());
-
-                    for method in methods {
-                        self.build_symbol_table(*method)?;
+            } => todo!(),
+            Stmt::Constant { name, type_, value } => {
+                let constant_symbol = format!("const.{}", name);
+                if self.global_scope.lookup_symbol(&constant_symbol).is_none() {
+                    let current_scope = self.global_scope.current_scope();
+                    match current_scope {
+                        Some(scope) => {
+                            scope.borrow_mut().add_symbol(
+                                constant_symbol.clone(),
+                                Symbol::Constant {
+                                    name: name.clone(),
+                                    type_: type_.clone(),
+                                    value: String::new(), // TODO: how do I save the value???
+                                },
+                            );
+                        }
+                        None => {
+                            Err(format!("error: global scope not found"))?;
+                        }
                     }
                 }
-
-                // exit scope
-                let pkg_table = self.global_symbol_table.get_current_package();
-                pkg_table.exit_scope();
-
-                Ok(())
-            }
-            Stmt::Constant { name, type_, value } => {
-                let pkg_table = self.global_symbol_table.get_current_package();
-                // TODO: is the value correctly assigned?
-                pkg_table.insert(Symbol::new(name.clone(), SymbolKind::Constant, Box::new(value), false));
-
                 Ok(())
             }
             Stmt::ConstantGroup { constants } => {
@@ -306,12 +220,42 @@ impl SemanticAnalyzer {
                 }
                 Ok(())
             }
-            // TODO: I don't have a `module` system yet. For now, it continues
-            Stmt::Use { name } => Ok(()),
-            // ignore the comments -- maybe one day we could use comments for special things like go does
-            // for now, we skip it
-            Stmt::Comment { text } => Ok(()),
-            Stmt::BlockComment { text } => Ok(()),
+            Stmt::Package { name } => {
+                let pkg_symbol = format!("pkg.{}", name);
+                if self.global_scope.lookup_symbol(&pkg_symbol).is_none() {
+                    let current_scope = self.global_scope.current_scope();
+                    match current_scope {
+                        Some(scope) => {
+                            scope
+                                .borrow_mut()
+                                .add_symbol(pkg_symbol.clone(), Symbol::Package(name.clone()));
+                            self.current_package = name;
+                        }
+                        None => {
+                            Err(format!("error: global scope not found"))?;
+                        }
+                    }
+                }
+                Ok(())
+            }
+            Stmt::Use { name } => {
+                let use_symbol = format!("use.{}", name);
+                if self.global_scope.lookup_symbol(&use_symbol).is_none() {
+                    let current_scope = self.global_scope.current_scope();
+                    match current_scope {
+                        Some(scope) => {
+                            scope
+                                .borrow_mut()
+                                .add_symbol(use_symbol.clone(), Symbol::Use(name.clone()));
+                            self.current_package = name;
+                        }
+                        None => {
+                            Err(format!("error: global scope not found"))?;
+                        }
+                    }
+                }
+                Ok(())
+            }
             Stmt::Empty => Ok(()),
         }
     }
