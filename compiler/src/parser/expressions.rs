@@ -1,3 +1,5 @@
+use std::{rc::Rc, sync::Arc};
+
 use crate::{
     lexer::{Token, TokenKind},
     T,
@@ -69,7 +71,7 @@ where
         self.consume(T!['(']);
         while !self.at(T![')']) {
             let arg = self.expression();
-            args.push(arg?);
+            args.push(Rc::new(Arc::new(arg?)));
             if self.at(T![,]) {
                 self.consume(T![,]);
             }
@@ -86,7 +88,7 @@ where
 
         Ok(ast::Stmt::ArrayAccess {
             name: array,
-            index: Box::new(index?),
+            index: Rc::new(Arc::new(index?)),
         })
     }
 
@@ -149,7 +151,7 @@ where
                     let expr = self.expression();
                     Ok(ast::Stmt::StructAccess {
                         name,
-                        field: Box::new(expr?),
+                        field: Rc::new(Arc::new(expr?)),
                     })
                 } else if self.at(T!['{']) {
                     self.consume(T!['{']);
@@ -167,7 +169,7 @@ where
                         let member_name = self.text(member_ident).to_string();
                         self.consume(T![:]);
                         let member_value = self.expression();
-                        members.push((member_name, Box::new(member_value?)));
+                        members.push((member_name, Rc::new(Arc::new(member_value?))));
                         if self.at(T![,]) {
                             self.consume(T![,]);
                         }
@@ -192,7 +194,7 @@ where
                 let mut elements = Vec::new();
                 while !self.at(T![']']) {
                     let element = self.parse_expression(0);
-                    elements.push(element?);
+                    elements.push(Rc::new(Arc::new(element?)));
                     if self.at(T![,]) {
                         self.consume(T![,]);
                     }
@@ -207,7 +209,7 @@ where
 
                 Ok(ast::Stmt::PrefixOp {
                     op,
-                    expr: Box::new(expr?),
+                    expr: Rc::new(Arc::new(expr?)),
                 })
             }
             T![nil] => {
@@ -221,7 +223,7 @@ where
                 while !self.at(T!['}']) {
                     let value = self.parse_expression(0);
                     match value {
-                        Ok(val) => elements.push(val),
+                        Ok(val) => elements.push(Rc::new(Arc::new(val))),
                         Err(err) => return Err(err),
                     }
                     if self.at(T![,]) {
@@ -332,7 +334,7 @@ where
                 // parsed our operand `lhs`
                 lhs = Ok(ast::Stmt::PostfixOp {
                     op,
-                    expr: Box::new(lhs?),
+                    expr: Rc::new(Arc::new(lhs?)),
                 });
                 // parsed an operator --> go round the loop again
                 continue;
@@ -349,8 +351,8 @@ where
                 let rhs = self.parse_expression(right_binding_power);
                 lhs = Ok(ast::Stmt::InfixOp {
                     op,
-                    lhs: Box::new(lhs?),
-                    rhs: Box::new(rhs?),
+                    lhs: Rc::new(Arc::new(lhs?)),
+                    rhs: Rc::new(Arc::new(rhs?)),
                 });
                 // parsed an operator --> go round the loop again
                 continue;
@@ -363,6 +365,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::{rc::Rc, sync::Arc};
+
     use crate::{
         parser::{ast, Parser},
         T,
@@ -390,8 +394,8 @@ mod tests {
             ast::Stmt::FunctionCall {
                 name: "bar".to_string(),
                 args: vec![
-                    ast::Stmt::Identifier("x".to_string()),
-                    ast::Stmt::Literal(ast::Lit::Int(2)),
+                    Rc::new(Arc::new(ast::Stmt::Identifier("x".to_string()))),
+                    Rc::new(Arc::new(ast::Stmt::Literal(ast::Lit::Int(2)))),
                 ],
             }
         );
@@ -400,7 +404,7 @@ mod tests {
             expr,
             ast::Stmt::PrefixOp {
                 op: T![!],
-                expr: Box::new(ast::Stmt::Identifier("is_visible".to_string())),
+                expr: Rc::new(Arc::new(ast::Stmt::Identifier("is_visible".to_string()))),
             }
         );
         let expr = parse("(-13)");
@@ -408,7 +412,7 @@ mod tests {
             expr,
             ast::Stmt::PrefixOp {
                 op: T![-],
-                expr: Box::new(ast::Stmt::Literal(ast::Lit::Int(13))),
+                expr: Rc::new(Arc::new(ast::Stmt::Literal(ast::Lit::Int(13)))),
             }
         );
     }

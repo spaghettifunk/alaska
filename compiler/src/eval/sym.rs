@@ -6,7 +6,7 @@ use crate::parser::ast::Type;
 
 #[derive(Debug, Clone)]
 pub enum Symbol {
-    Variable(String), // Variable with its type as a string
+    Identifier(String), // Identifier with its type as a string
     Constant {
         name: String,
         type_: Type,   // Constant type
@@ -22,7 +22,15 @@ pub enum Symbol {
         name: String,
         type_: String, // Struct member type
     },
-    Interface(Rc<RefCell<SymbolTable>>), // Interface with its own symbol table
+    Interface {
+        name: String,
+        table: Rc<RefCell<SymbolTable>>, // Interface with its own symbol table
+    },
+    InterfaceMethod {
+        name: String,
+        parameters: Vec<(String, Type)>, // Vector of (parameter name, parameter type)
+        return_type: Option<Vec<Type>>,  // Optional vector of return types
+    },
     Enum {
         is_public: bool,
         name: String,

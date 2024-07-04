@@ -23,12 +23,8 @@ impl SemanticAnalyzer {
         for sourcefile in ast.files {
             println!("symbols collection for file `{:?}`....", sourcefile.name);
             for stmt in sourcefile.statements {
-                match stmt {
-                    Ok(stmt) => {
-                        self.build_symbol_table(stmt)?;
-                    }
-                    Err(_) => continue,
-                }
+                let s = &**stmt;
+                let _ = self.build_symbol_table(s.clone());
             }
         }
         Ok(())
@@ -37,8 +33,76 @@ impl SemanticAnalyzer {
     fn build_symbol_table(&mut self, stmt: Stmt) -> Result<(), String> {
         match stmt {
             Stmt::Literal(_) => Ok(()),
-            Stmt::Identifier(name) => todo!(),
-            Stmt::Interface { name, type_, methods } => todo!(),
+            Stmt::Identifier(name) => {
+                let current_scope = self.global_scope.current_scope();
+                match current_scope {
+                    Some(scope) => {
+                        if scope.borrow().lookup(&name).is_some() {
+                            Err(format!("error: identifier already declared"))?;
+                        }
+                        scope.borrow_mut().add_symbol(name.clone(), Symbol::Identifier(name));
+                    }
+                    None => {
+                        Err(format!("error: global scope not found"))?;
+                    }
+                }
+                Ok(())
+            }
+            Stmt::Interface { name, type_, methods } => {
+                let interface_symbol = format!("interface.{}", name);
+                if self.global_scope.lookup_symbol(&interface_symbol).is_none() {
+                    let current_scope = self.global_scope.current_scope();
+                    match current_scope {
+                        Some(scope) => {
+                            scope.borrow_mut().add_symbol(
+                                interface_symbol.clone(),
+                                Symbol::Interface {
+                                    name: name.clone(),
+                                    table: Rc::new(RefCell::new(SymbolTable::new(
+                                        interface_symbol.clone(),
+                                        Some(scope.clone()),
+                                    ))),
+                                },
+                            );
+                        }
+                        None => {
+                            Err(format!("error: global scope not found"))?;
+                        }
+                    }
+                } else {
+                    Err(format!("error: interface already declared"))?;
+                }
+
+                let interface_scope = self.global_scope.get_symbol_table_by_name(&interface_symbol);
+                match interface_scope {
+                    Some(scope) => {
+                        for method in methods {
+                            match &**method {
+                                Stmt::InterfaceFunctionSignature {
+                                    name,
+                                    generics,
+                                    parameters,
+                                    return_type,
+                                } => {
+                                    scope.borrow_mut().add_symbol(
+                                        name.clone(),
+                                        Symbol::InterfaceMethod {
+                                            name: name.clone(),
+                                            parameters: parameters.clone(),
+                                            return_type: return_type.clone(),
+                                        },
+                                    );
+                                }
+                                _ => continue,
+                            }
+                        }
+                    }
+                    None => {
+                        Err(format!("error: interface scope not found"))?;
+                    }
+                }
+                Ok(())
+            }
             Stmt::FunctionCall { name, args } => todo!(),
             Stmt::Array { elements } => todo!(),
             Stmt::ArrayAccess { name, index } => todo!(),
@@ -150,13 +214,13 @@ impl SemanticAnalyzer {
                 match struct_scope {
                     Some(scope) => {
                         for member in members {
-                            match member {
+                            match &**member {
                                 Stmt::StructMember { is_public, name, type_ } => {
                                     scope.borrow_mut().add_symbol(
                                         name.clone(),
                                         Symbol::StructMember {
-                                            is_public,
-                                            name,
+                                            is_public: *is_public,
+                                            name: name.clone(),
                                             type_: String::new(), // TODO: how do I save the type???
                                         },
                                     );
@@ -216,11 +280,12 @@ impl SemanticAnalyzer {
             }
             Stmt::ConstantGroup { constants } => {
                 for constant in constants {
-                    self.build_symbol_table(*constant)?;
+                    let s = &**constant;
+                    self.build_symbol_table(s.clone())?;
                 }
                 Ok(())
             }
-            Stmt::Package { name } => {
+            Stmt::PackageDeclaration { name } => {
                 let pkg_symbol = format!("pkg.{}", name);
                 if self.global_scope.lookup_symbol(&pkg_symbol).is_none() {
                     let current_scope = self.global_scope.current_scope();
@@ -238,7 +303,7 @@ impl SemanticAnalyzer {
                 }
                 Ok(())
             }
-            Stmt::Use { name } => {
+            Stmt::UseDeclaration { name } => {
                 let use_symbol = format!("use.{}", name);
                 if self.global_scope.lookup_symbol(&use_symbol).is_none() {
                     let current_scope = self.global_scope.current_scope();

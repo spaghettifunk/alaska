@@ -1,6 +1,5 @@
-use super::Result;
 use crate::lexer::TokenKind;
-use std::fmt;
+use std::{fmt, rc::Rc, sync::Arc};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
@@ -8,36 +7,36 @@ pub enum Stmt {
     Identifier(String),
     Interface {
         name: String,
-        type_: Option<Box<Type>>,
-        methods: Vec<Box<Stmt>>,
+        type_: Option<Type>,
+        methods: Vec<Rc<Arc<Stmt>>>,
     },
     FunctionCall {
         name: String,
-        args: Vec<Stmt>,
+        args: Vec<Rc<Arc<Stmt>>>,
     },
     Array {
-        elements: Vec<Stmt>,
+        elements: Vec<Rc<Arc<Stmt>>>,
     },
     ArrayAccess {
         name: String,
-        index: Box<Stmt>,
+        index: Rc<Arc<Stmt>>,
     },
     StructAccess {
         name: String,
-        field: Box<Stmt>,
+        field: Rc<Arc<Stmt>>,
     },
     PrefixOp {
         op: TokenKind,
-        expr: Box<Stmt>,
+        expr: Rc<Arc<Stmt>>,
     },
     InfixOp {
         op: TokenKind,
-        lhs: Box<Stmt>,
-        rhs: Box<Stmt>,
+        lhs: Rc<Arc<Stmt>>,
+        rhs: Rc<Arc<Stmt>>,
     },
     PostfixOp {
         op: TokenKind,
-        expr: Box<Stmt>,
+        expr: Rc<Arc<Stmt>>,
     },
     Comment {
         text: String,
@@ -46,39 +45,39 @@ pub enum Stmt {
         text: String,
     },
     Defer {
-        stmt: Box<Stmt>,
+        stmt: Rc<Arc<Stmt>>,
     },
     Let {
         identifier: String,
-        statement: Box<Stmt>,
+        statement: Rc<Arc<Stmt>>,
     },
     Assignment {
         name: String,
-        value: Box<Stmt>,
+        value: Rc<Arc<Stmt>>,
     },
     IfStmt {
-        condition: Box<Stmt>,
-        body: Vec<Stmt>,
-        else_stmt: Option<Box<Stmt>>,
+        condition: Rc<Arc<Stmt>>,
+        body: Vec<Rc<Arc<Stmt>>>,
+        else_stmt: Option<Rc<Arc<Stmt>>>,
     },
     RangeStmt {
         iterator: String,
-        range: Box<Stmt>,
-        body: Vec<Stmt>,
+        range: Rc<Arc<Stmt>>,
+        body: Vec<Rc<Arc<Stmt>>>,
     },
     WhileStmt {
-        condition: Box<Stmt>,
-        body: Vec<Stmt>,
+        condition: Rc<Arc<Stmt>>,
+        body: Vec<Rc<Arc<Stmt>>>,
     },
     MatchStmt {
-        value: Box<Stmt>,
-        arms: Vec<(Stmt, Vec<Stmt>)>,
+        value: Rc<Arc<Stmt>>,
+        arms: Vec<(Rc<Arc<Stmt>>, Vec<Rc<Arc<Stmt>>>)>,
     },
     Block {
-        stmts: Vec<Stmt>,
+        stmts: Vec<Rc<Arc<Stmt>>>,
     },
     Return {
-        value: Vec<Box<Stmt>>,
+        value: Vec<Rc<Arc<Stmt>>>,
     },
     StructMember {
         is_public: bool,
@@ -94,44 +93,44 @@ pub enum Stmt {
         is_public: bool,
         name: String,
         type_: Type,
-        members: Vec<Stmt>,
+        members: Vec<Rc<Arc<Stmt>>>,
     },
     StructInstantiation {
         name: String,
-        members: Vec<(String, Box<Stmt>)>,
+        members: Vec<(String, Rc<Arc<Stmt>>)>,
     },
     InterfaceFunctionSignature {
         name: String,
-        generics: Option<Vec<Box<Type>>>,
+        generics: Option<Vec<Type>>,
         parameters: Vec<(String, Type)>,
-        return_type: Option<Vec<Box<Type>>>,
+        return_type: Option<Vec<Type>>,
     },
     FunctionDeclaration {
         is_public: bool,
         name: String,
-        generics: Option<Vec<Box<Type>>>,
+        generics: Option<Vec<Type>>,
         parameters: Vec<(String, Type)>,
-        body: Vec<Stmt>,
-        return_type: Option<Vec<Box<Type>>>,
+        body: Vec<Rc<Arc<Stmt>>>,
+        return_type: Option<Vec<Type>>,
     },
     ImplDeclaration {
         name: String,
-        generics: Option<Vec<Box<Type>>>,
-        interfaces: Option<Vec<Box<Type>>>,
-        methods: Vec<Box<Stmt>>,
+        generics: Option<Vec<Type>>,
+        interfaces: Option<Vec<Type>>,
+        methods: Vec<Rc<Arc<Stmt>>>,
     },
     Constant {
         name: String,
         type_: Type,
-        value: Box<Stmt>,
+        value: Rc<Arc<Stmt>>,
     },
     ConstantGroup {
-        constants: Vec<Box<Stmt>>,
+        constants: Vec<Rc<Arc<Stmt>>>,
     },
-    Package {
+    PackageDeclaration {
         name: String,
     },
-    Use {
+    UseDeclaration {
         name: String,
     },
     Empty,
@@ -140,14 +139,14 @@ pub enum Stmt {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SourceFile {
     pub name: String,
-    pub statements: Vec<Result<Stmt>>,
+    pub statements: Vec<Rc<Arc<Stmt>>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Type {
     pub name: String,
     pub is_array: bool,
-    pub generics: Option<Vec<Box<Type>>>,
+    pub generics: Option<Vec<Type>>,
 }
 
 impl Type {
@@ -362,8 +361,8 @@ impl fmt::Display for Stmt {
                 }
                 write!(f, "}}")
             }
-            Stmt::Package { name: path } => write!(f, "package {};", path),
-            Stmt::Use { name } => write!(f, "use {};", name),
+            Stmt::PackageDeclaration { name: path } => write!(f, "package {};", path),
+            Stmt::UseDeclaration { name } => write!(f, "use {};", name),
             Stmt::Defer { stmt } => write!(f, "defer {{\n{}\n}}", stmt),
             Stmt::Empty => write!(f, ""),
             Stmt::Interface { name, type_, methods } => {
@@ -474,7 +473,7 @@ impl fmt::Display for SourceFile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "File: {}\n", self.name)?;
         for stmt in &self.statements {
-            write!(f, "{}\n", stmt.clone().unwrap())?;
+            write!(f, "{}\n", stmt.clone())?;
         }
         Ok(())
     }
