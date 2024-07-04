@@ -1,7 +1,12 @@
 package main;
 
 fn main() -> int {
-    let f = 10 + 2;        // f = 12
-    let k = (f - 3)/9 - 1; // k = 0
+    let k = 42;
+
+    let k = "hello";
+    
+    // let f = 10 + 2;        // f = 12
+    // let k = (f - 3)/9 - 1; // k = 0
+
     return k;
 }

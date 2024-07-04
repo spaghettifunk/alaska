@@ -43,6 +43,7 @@ fn main() -> Result<()> {
     match sema.symbols_collection(ast) {
         Ok(_) => {
             println!("Analysis complete");
+            println!("{}", sema);
         }
         Err(e) => {
             eprintln!("Error analyzing source file: {}", e);

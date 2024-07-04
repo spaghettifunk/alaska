@@ -651,6 +651,10 @@ where
                 self.consume(T![,]);
                 Ok(ast::Stmt::Identifier(name))
             }
+            T![;] => {
+                // We don't consyme the semicolon here, because it's consumed in the caller function
+                Ok(ast::Stmt::Identifier(name))
+            }
             T!['('] => {
                 let fn_call = self.parse_fn_call(name);
                 Ok(fn_call?)

@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 regex = "1"
 lazy_static = "1"
-logos = "0.14.0"
+uuid = { version =  "1.9.1", features = ["v4", "fast-rng"] }
 
 [dev-dependencies]
 unindent = "0.2.3"
