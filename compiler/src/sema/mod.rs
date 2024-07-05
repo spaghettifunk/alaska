@@ -1,8 +1,10 @@
+// #![allow(unused)]
+
 mod sym;
 
 use std::{
     cell::RefCell,
-    fmt::{self, format, Formatter},
+    fmt::{self, Formatter},
     rc::Rc,
 };
 use uuid::Uuid;
@@ -14,6 +16,7 @@ use crate::parser::ast::{Stmt, AST};
 #[derive(Debug)]
 pub struct SemanticAnalyzer {
     global_symbol_table: GlobalSymbolTable,
+    forward_references_symbol_table: SymbolTable,
     current_package: String,
 }
 
@@ -21,10 +24,12 @@ impl SemanticAnalyzer {
     pub fn new() -> SemanticAnalyzer {
         SemanticAnalyzer {
             global_symbol_table: GlobalSymbolTable::new(),
+            forward_references_symbol_table: SymbolTable::new("forward_references".to_string(), None),
             current_package: String::new(),
         }
     }
 
+    // first pass to collect as many symbols as possible
     pub fn symbols_collection(&mut self, ast: AST) -> Result<(), String> {
         for sourcefile in ast.files {
             println!("Symbols collection for file `{:?}`....", sourcefile.name);
@@ -51,13 +56,18 @@ impl SemanticAnalyzer {
     ) -> Result<(), String> {
         match stmt {
             Stmt::Literal(_) => Ok(()),
-            Stmt::Comment { text } => Ok(()),
-            Stmt::BlockComment { text } => Ok(()),
+            Stmt::Comment(_) => Ok(()),
+            Stmt::BlockComment(_) => Ok(()),
+            // TODO: match is not yet implemented
+            Stmt::MatchStmt { value, arms } => Ok(()),
+            Stmt::Empty => Ok(()),
             Stmt::Identifier(name) => {
                 match symbol_table {
                     Some(table) => {
-                        if table.as_ref().borrow().lookup(&name).is_some() {
-                            Err(format!("error: identifier already declared"))?;
+                        if table.as_ref().borrow().lookup(&name).is_none() {
+                            let ident_symbol = format!("identifier.{}", name);
+                            self.forward_references_symbol_table
+                                .add_symbol(ident_symbol.clone(), Symbol::Identifier(name.clone()));
                         }
                         table
                             .as_ref()
@@ -65,7 +75,7 @@ impl SemanticAnalyzer {
                             .add_symbol(name.clone(), Symbol::Identifier(name));
                     }
                     None => {
-                        Err(format!("error: global scope not found"))?;
+                        Err(format!("error: symbol table not found"))?;
                     }
                 }
                 Ok(())
@@ -78,10 +88,8 @@ impl SemanticAnalyzer {
                         .get_symbol_table_by_name(self.current_package.as_str());
                     match package_symbol_table {
                         Some(table) => {
-                            let interface_functions_signatures_symbol_table = Rc::new(RefCell::new(SymbolTable::new(
-                                interface_symbol.clone(),
-                                Some(table.clone()),
-                            )));
+                            let interface_functions_signatures_symbol_table =
+                                Rc::new(RefCell::new(SymbolTable::new(name.clone(), Some(table.clone()))));
 
                             for method in methods {
                                 let m = &**method;
@@ -91,8 +99,8 @@ impl SemanticAnalyzer {
                                 )?;
                             }
 
-                            table.borrow_mut().add_symbol(
-                                interface_symbol.clone(),
+                            table.as_ref().borrow_mut().add_symbol(
+                                name.clone(),
                                 Symbol::Interface {
                                     name: name.clone(),
                                     table: interface_functions_signatures_symbol_table,
@@ -104,7 +112,7 @@ impl SemanticAnalyzer {
                         }
                     }
                 } else {
-                    Err(format!("error: interface already declared"))?;
+                    Err(format!("error: interface `{}` already declared", name))?;
                 }
 
                 Ok(())
@@ -120,10 +128,10 @@ impl SemanticAnalyzer {
                 }
 
                 let table = symbol_table.as_ref().unwrap();
-                if table.borrow_mut().lookup(&name).is_some() {
-                    Err(format!("error: method in interface already declared"))?;
+                if table.as_ref().borrow().lookup(&name).is_some() {
+                    Err(format!("error: method `{}` in interface already declared", name))?;
                 }
-                table.borrow_mut().add_symbol(
+                table.as_ref().borrow_mut().add_symbol(
                     name.clone(),
                     Symbol::InterfaceMethod {
                         name: name.clone(),
@@ -131,31 +139,102 @@ impl SemanticAnalyzer {
                         return_type: return_type.clone(),
                     },
                 );
+                Ok(())
+            }
+            Stmt::FunctionCall { name, args } => {
+                match symbol_table {
+                    Some(table) => {
+                        let fn_symbol = format!("fn.{}", name);
+                        if table.as_ref().borrow().lookup(&fn_symbol).is_none() {
+                            self.forward_references_symbol_table
+                                .add_symbol(fn_symbol.clone(), Symbol::Identifier(name.clone()));
+                        } else {
+                            for arg in args {
+                                let a = &**arg;
+                                self.build_symbol_table(a.clone(), &Some(table.clone()))?;
+                            }
+                        }
+                    }
+                    None => {
+                        Err(format!("error: symbol table not found"))?;
+                    }
+                }
+                Ok(())
+            }
+            Stmt::ArrayInitialization { elements } => {
+                for element in elements {
+                    let e = &**element;
+                    self.build_symbol_table(e.clone(), symbol_table)?;
+                }
+                Ok(())
+            }
+            Stmt::ArrayAccess { name, index } => {
+                match symbol_table {
+                    Some(table) => {
+                        if table.as_ref().borrow().lookup(&name).is_none() {
+                            Err(format!(
+                                "error: identifier `{}` for array access not declared",
+                                name.clone()
+                            ))?;
+                        }
+                        let s = &**index;
+                        self.build_symbol_table(s.clone(), symbol_table)?;
+                    }
+                    None => {
+                        Err(format!("error: symbol table not found"))?;
+                    }
+                }
+                Ok(())
+            }
+            Stmt::StructAccess { name, field } => {
+                // search in the global table if the struct is declared
+                // let struct_symbol = format!("struct.{}", name);
+                if self.global_symbol_table.lookup_symbol(&name).is_none() {
+                    Err(format!("error: struct `{}` not declared", name))?;
+                }
+                // since we need to access the field of the struct we need to find the symbol table
+                if symbol_table.is_none() {
+                    Err(format!("error: missing struct `{}` symbol table", name))?;
+                }
+
+                let struct_field = &**field;
+                self.build_symbol_table(struct_field.clone(), symbol_table)
+            }
+            Stmt::PrefixOp { op, expr } => {
+                // TODO: what to do with op?
+                let e = &**expr;
+                self.build_symbol_table(e.clone(), symbol_table)
+            }
+            Stmt::PostfixOp { op, expr } => {
+                // TODO: what to do with op?
+                let e = &**expr;
+                self.build_symbol_table(e.clone(), symbol_table)
+            }
+            Stmt::InfixOp { op, lhs, rhs } => {
+                // TODO: what to do with op?
+                let l = &**lhs;
+                self.build_symbol_table(l.clone(), symbol_table)?;
+
+                let r = &**rhs;
+                self.build_symbol_table(r.clone(), symbol_table)?;
 
                 Ok(())
             }
-            Stmt::FunctionCall { name, args } => todo!(),
-            Stmt::Array { elements } => todo!(),
-            Stmt::ArrayAccess { name, index } => todo!(),
-            Stmt::StructAccess { name, field } => todo!(),
-            Stmt::PrefixOp { op, expr } => todo!(),
-            Stmt::InfixOp { op, lhs, rhs } => todo!(),
-            Stmt::PostfixOp { op, expr } => todo!(),
             Stmt::Defer { stmt } => {
                 let s = &**stmt;
                 self.build_symbol_table(s.clone(), symbol_table)
             }
-            Stmt::Let { identifier, statement } => {
+            Stmt::Let { name, statement } => {
                 // TODO: need to validate that this is the correct name for the symbol
-                let let_symbol = format!("let.{}", identifier);
                 match symbol_table {
                     Some(table) => {
-                        if table.as_ref().borrow().lookup(&let_symbol).is_some() {
-                            Err(format!("error: identifier `{}`  already declared", identifier))?;
+                        if table.as_ref().borrow().lookup(&name).is_some() {
+                            Err(format!("error: identifier `{}` already declared", name))?;
                         }
                         table
+                            .as_ref()
                             .borrow_mut()
-                            .add_symbol(let_symbol.clone(), Symbol::Identifier(identifier));
+                            .add_symbol(name.clone(), Symbol::Identifier(name));
                     }
                     None => {
                         Err(format!("error: missing symbol table",))?;
@@ -169,7 +248,7 @@ impl SemanticAnalyzer {
                 match symbol_table {
                     Some(table) => {
                         if table.as_ref().borrow().lookup(&name).is_none() {
-                            Err(format!("error: identifier not declared"))?;
+                            Err(format!("error: identifier `{}` not declared", name))?;
                         }
                         // TODO: add value in the table
                     }
@@ -185,21 +264,48 @@ impl SemanticAnalyzer {
                 body,
                 else_stmt,
             } => {
+                let if_id = format!("if.{}", Uuid::new_v4().to_string());
+                let if_symbol_table = Rc::new(RefCell::new(SymbolTable::new(if_id.clone(), symbol_table.clone())));
+
                 let c = &**condition;
-                self.build_symbol_table(c.clone(), symbol_table)?;
+                self.build_symbol_table(c.clone(), &Some(if_symbol_table.clone()))?;
 
                 for stmt in body {
                     let s = &**stmt;
-                    self.build_symbol_table(s.clone(), symbol_table)?;
+                    self.build_symbol_table(s.clone(), &Some(if_symbol_table.clone()))?;
                 }
 
+                let else_id = format!("else.{}", Uuid::new_v4().to_string());
+                let mut else_symbol_table = None;
                 match else_stmt {
                     Some(else_stmt) => {
+                        else_symbol_table = Some(Rc::new(RefCell::new(SymbolTable::new(
+                            else_id.clone(),
+                            symbol_table.clone(),
+                        ))));
+
                         let e = &**else_stmt;
-                        self.build_symbol_table(e.clone(), symbol_table)?;
+                        self.build_symbol_table(e.clone(), &else_symbol_table.clone())?;
                     }
                     None => {}
                 }
+
+                match symbol_table {
+                    Some(table) => {
+                        table.as_ref().borrow_mut().add_symbol(
+                            if_id.clone(),
+                            Symbol::IfStatement {
+                                condition: String::new(), // TODO: is this correct?
+                                then_body: if_symbol_table.clone(),
+                                else_body: else_symbol_table.clone(),
+                            },
+                        );
+                    }
+                    None => {
+                        Err(format!("error: symbol table not found"))?;
+                    }
+                }
+
                 Ok(())
             }
             Stmt::RangeStmt { iterator, range, body } => {
@@ -215,6 +321,7 @@ impl SemanticAnalyzer {
                 )));
 
                 range_symbol_table
+                    .as_ref()
                     .borrow_mut()
                     .add_symbol(iterator.clone(), Symbol::Identifier(iterator.clone()));
 
@@ -274,8 +381,32 @@ impl SemanticAnalyzer {
 
                 Ok(())
             }
-            Stmt::MatchStmt { value, arms } => todo!(),
-            Stmt::Block { stmts } => todo!(),
+            Stmt::Block { stmts } => {
+                let block_id = format!("block.{}", Uuid::new_v4().to_string());
+                let block_symbol_table = Some(Rc::new(RefCell::new(SymbolTable::new(
+                    block_id.clone(),
+                    symbol_table.clone(),
+                ))));
+
+                for stmt in stmts {
+                    let s = &**stmt;
+                    self.build_symbol_table(s.clone(), &block_symbol_table.clone())?;
+                }
+
+                match symbol_table {
+                    Some(table) => {
+                        table
+                            .as_ref()
+                            .borrow_mut()
+                            .add_symbol(block_id.clone(), Symbol::Block(block_symbol_table));
+                    }
+                    None => {
+                        Err(format!("error: symbol table not found"))?;
+                    }
+                }
+
+                Ok(())
+            }
             Stmt::Return { value } => {
                 for val in value {
                     let v = &**val;
@@ -296,14 +427,14 @@ impl SemanticAnalyzer {
                     match package_symbol_table {
                         Some(table) => {
                             let enum_member_symbol_table =
-                                Rc::new(RefCell::new(SymbolTable::new(enum_symbol.clone(), Some(table.clone()))));
+                                Rc::new(RefCell::new(SymbolTable::new(name.clone(), Some(table.clone()))));
 
                             for member in members {
                                 if enum_member_symbol_table.as_ref().borrow().lookup(&member).is_some() {
-                                    Err(format!("error: enum member already declared"))?;
+                                    Err(format!("error: enum member `{}` already declared", member))?;
                                 }
 
-                                enum_member_symbol_table.borrow_mut().add_symbol(
+                                enum_member_symbol_table.as_ref().borrow_mut().add_symbol(
                                     member.clone(),
                                     Symbol::EnumMember {
                                         name: member.clone(),
@@ -312,7 +443,7 @@ impl SemanticAnalyzer {
                                 );
                             }
 
-                            table.borrow_mut().add_symbol(
+                            table.as_ref().borrow_mut().add_symbol(
                                 enum_symbol.clone(),
                                 Symbol::Enum {
                                     is_public,
@@ -322,11 +453,14 @@ impl SemanticAnalyzer {
                             );
                         }
                         None => {
-                            Err(format!("error: package symbol table not found"))?;
+                            Err(format!(
+                                "error: package `{}` symbol table not found",
+                                self.current_package
+                            ))?;
                         }
                     }
                 } else {
-                    Err(format!("error: enum already declared"))?;
+                    Err(format!("error: enum `{}` already declared", name))?;
                 }
                 Ok(())
             }
@@ -343,17 +477,15 @@ impl SemanticAnalyzer {
                         .get_symbol_table_by_name(self.current_package.as_str());
                     match package_symbol_table {
                         Some(table) => {
-                            let struct_members_table = Rc::new(RefCell::new(SymbolTable::new(
-                                struct_symbol.clone(),
-                                Some(table.clone()),
-                            )));
+                            let struct_members_table =
+                                Rc::new(RefCell::new(SymbolTable::new(name.clone(), Some(table.clone()))));
 
                             for member in members {
                                 let m = &**member;
                                 self.build_symbol_table(m.clone(), &Some(struct_members_table.clone()))?;
                             }
 
-                            table.borrow_mut().add_symbol(
+                            table.as_ref().borrow_mut().add_symbol(
                                 struct_symbol.clone(),
                                 Symbol::Struct {
                                     is_public,
@@ -363,11 +495,14 @@ impl SemanticAnalyzer {
                             );
                         }
                         None => {
-                            Err(format!("error: package symbol table not found"))?;
+                            Err(format!(
+                                "error: package `{}` symbol table not found",
+                                self.current_package
+                            ))?;
                         }
                     }
                 } else {
-                    Err(format!("error: struct already declared"))?;
+                    Err(format!("error: struct `{}` already declared", name))?;
                 }
 
                 Ok(())
@@ -378,10 +513,10 @@ impl SemanticAnalyzer {
                 }
 
                 let table = symbol_table.as_ref().unwrap();
-                if table.borrow_mut().lookup(&name).is_some() {
-                    Err(format!("error: struct member already declared"))?;
+                if table.as_ref().borrow_mut().lookup(&name).is_some() {
+                    Err(format!("error: struct member `{}` already declared", name))?;
                 }
-                table.borrow_mut().add_symbol(
+                table.as_ref().borrow_mut().add_symbol(
                     name.clone(),
                     Symbol::StructMember {
                         is_public,
@@ -392,7 +527,29 @@ impl SemanticAnalyzer {
 
                 Ok(())
             }
-            Stmt::StructInstantiation { name, members } => todo!(),
+            Stmt::StructInstantiation { name, members } => {
+                // search in the global table if the struct is declared
+                let struct_symbol = format!("struct.{}", name);
+                if self.global_symbol_table.lookup_symbol(&struct_symbol).is_none() {
+                    // this is a potential instantiation of a struct where the struct definition
+                    // is not yet defined
+                    self.forward_references_symbol_table.add_symbol(
+                        struct_symbol.clone(),
+                        Symbol::Struct {
+                            is_public: false,
+                            name: name.clone(),
+                            table: Rc::new(RefCell::new(SymbolTable::new(name.clone(), None))),
+                        },
+                    );
+                }
+
+                for (name, member) in members {
+                    let m = &**member;
+                    self.build_symbol_table(m.clone(), symbol_table)?;
+                }
+
+                Ok(())
+            }
             Stmt::FunctionDeclaration {
                 is_public,
                 name,
@@ -401,24 +558,20 @@ impl SemanticAnalyzer {
                 body,
                 return_type,
             } => {
-                let function_symbol = format!("func.{}", name);
-                if self.global_symbol_table.lookup_symbol(&function_symbol).is_none() {
-                    let package_symbol_table = self
-                        .global_symbol_table
-                        .get_symbol_table_by_name(self.current_package.as_str());
-                    match package_symbol_table {
-                        Some(table) => {
-                            let fn_body_table = Rc::new(RefCell::new(SymbolTable::new(
-                                function_symbol.clone(),
-                                Some(table.clone()),
-                            )));
+                let function_symbol = format!("fn.{}", name);
+                match symbol_table {
+                    // we are inside an `impl` block
+                    Some(table) => {
+                        if table.as_ref().borrow().lookup(&function_symbol).is_none() {
+                            let fn_body_table =
+                                Rc::new(RefCell::new(SymbolTable::new(name.clone(), Some(table.clone()))));
 
                             for stmt in body {
                                 let s = &**stmt;
                                 self.build_symbol_table(s.clone(), &Some(fn_body_table.clone()))?;
                             }
 
-                            table.borrow_mut().add_symbol(
+                            table.as_ref().borrow_mut().add_symbol(
                                 function_symbol.clone(),
                                 Symbol::Function {
                                     is_public,
@@ -428,13 +581,48 @@ impl SemanticAnalyzer {
                                     body: fn_body_table,
                                 },
                             );
-                        }
-                        None => {
-                            Err(format!("error: package symbol table not found"))?;
+                        } else {
+                            Err(format!("error: function `{}` already declared", name))?;
                         }
                     }
-                } else {
-                    Err(format!("error: function already declared"))?;
+                    // we are in the global scope
+                    None => {
+                        if self.global_symbol_table.lookup_symbol(&function_symbol).is_none() {
+                            let package_symbol_table = self
+                                .global_symbol_table
+                                .get_symbol_table_by_name(self.current_package.as_str());
+                            match package_symbol_table {
+                                Some(table) => {
+                                    let fn_body_table =
+                                        Rc::new(RefCell::new(SymbolTable::new(name.clone(), Some(table.clone()))));
+
+                                    for stmt in body {
+                                        let s = &**stmt;
+                                        self.build_symbol_table(s.clone(), &Some(fn_body_table.clone()))?;
+                                    }
+
+                                    table.as_ref().borrow_mut().add_symbol(
+                                        function_symbol.clone(),
+                                        Symbol::Function {
+                                            is_public,
+                                            name: name.clone(),
+                                            parameters: parameters.clone(),
+                                            return_type: return_type.clone(),
+                                            body: fn_body_table,
+                                        },
+                                    );
+                                }
+                                None => {
+                                    Err(format!(
+                                        "error: package `{}` symbol table not found",
+                                        self.current_package
+                                    ))?;
+                                }
+                            }
+                        } else {
+                            Err(format!("error: function `{}` already declared", name))?;
+                        }
+                    }
                 }
 
                 Ok(())
@@ -453,14 +641,14 @@ impl SemanticAnalyzer {
                     match package_symbol_table {
                         Some(table) => {
                             let impl_methods_table =
-                                Rc::new(RefCell::new(SymbolTable::new(impl_symbol.clone(), Some(table.clone()))));
+                                Rc::new(RefCell::new(SymbolTable::new(name.clone(), Some(table.clone()))));
 
                             for method in methods {
                                 let m = &**method;
                                 self.build_symbol_table(m.clone(), &Some(impl_methods_table.clone()))?;
                             }
 
-                            table.borrow_mut().add_symbol(
+                            table.as_ref().borrow_mut().add_symbol(
                                 impl_symbol.clone(),
                                 Symbol::Impl {
                                     name: name.clone(),
@@ -470,11 +658,14 @@ impl SemanticAnalyzer {
                             );
                         }
                         None => {
-                            Err(format!("error: package symbol table not found"))?;
+                            Err(format!(
+                                "error: package `{}` symbol table not found",
+                                self.current_package
+                            ))?;
                         }
                     }
                 } else {
-                    Err(format!("error: impl already declared"))?;
+                    Err(format!("error: impl `{}` already declared", name))?;
                 }
 
                 Ok(())
@@ -482,12 +673,12 @@ impl SemanticAnalyzer {
             Stmt::Constant { name, type_, value } => {
                 let constant_symbol = format!("const.{}", name);
                 if self.global_symbol_table.lookup_symbol(&constant_symbol).is_none() {
-                    let current_scope = self
+                    let package_symbol_table = self
                         .global_symbol_table
                         .get_symbol_table_by_name(self.current_package.as_str());
-                    match current_scope {
+                    match package_symbol_table {
                         Some(scope) => {
-                            scope.borrow_mut().add_symbol(
+                            scope.as_ref().borrow_mut().add_symbol(
                                 constant_symbol.clone(),
                                 Symbol::Constant {
                                     name: name.clone(),
@@ -497,11 +688,14 @@ impl SemanticAnalyzer {
                             );
                         }
                         None => {
-                            Err(format!("error: global scope not found"))?;
+                            Err(format!(
+                                "error: package `{}` symbol table not found",
+                                self.current_package
+                            ))?;
                         }
                     }
                 } else {
-                    Err(format!("error: constant already declared"))?;
+                    Err(format!("error: constant `{}` already declared", name))?;
                 }
                 Ok(())
             }
@@ -515,32 +709,59 @@ impl SemanticAnalyzer {
             Stmt::PackageDeclaration { name } => {
                 let pkg_symbol = format!("pkg.{}", name);
                 if self.global_symbol_table.lookup_symbol(&pkg_symbol).is_none() {
-                    self.global_symbol_table.new_package(name.clone(), pkg_symbol.clone());
-                    self.current_package = pkg_symbol;
+                    self.global_symbol_table.new_package(pkg_symbol.clone(), name.clone());
+                    self.current_package = name.clone();
+                } else {
+                    self.current_package = name.clone();
                 }
                 Ok(())
             }
             Stmt::UseDeclaration { name } => {
                 let use_symbol = format!("use.{}", name);
                 if self.global_symbol_table.lookup_symbol(&use_symbol).is_none() {
-                    let current_scope = self
+                    let package_symbol_table = self
                         .global_symbol_table
                         .get_symbol_table_by_name(self.current_package.as_str());
-                    match current_scope {
+                    match package_symbol_table {
                         Some(scope) => {
                             scope
+                                .as_ref()
                                 .borrow_mut()
                                 .add_symbol(use_symbol.clone(), Symbol::Use(name.clone()));
                         }
                         None => {
-                            Err(format!("error: global scope not found"))?;
+                            Err(format!(
+                                "error: package `{}` symbol table not found",
+                                self.current_package
+                            ))?;
                         }
                     }
                 }
                 Ok(())
             }
-            Stmt::Empty => Ok(()),
         }
+    }
+
+    // forward references pass to check if all symbols are defined
+    pub fn forward_references(&mut self) -> Result<(), Vec<String>> {
+        let result: Vec<String> = self
+            .forward_references_symbol_table
+            .get_symbols()
+            .iter()
+            .map(|(symbol_name, symbol)| {
+                let found = self.global_symbol_table.lookup_symbol(&symbol_name);
+                match found {
+                    Some(_) => "".to_string(),
+                    None => format!("error: symbol `{}` undefined", symbol_name),
+                }
+            })
+            .filter(|s| s.len() > 0)
+            .collect();
+
+        if result.len() > 0 {
+            return Err(result);
+        }
+        Ok(())
     }
 }
 

@@ -1,4 +1,3 @@
-use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
@@ -38,6 +37,7 @@ pub enum Symbol {
         parameters: Vec<(String, Type)>, // Vector of (parameter name, parameter type)
         return_type: Option<Vec<Type>>,  // Optional vector of return types
     },
+    Block(Option<Rc<RefCell<SymbolTable>>>), // Block with its own symbol table
     Enum {
         is_public: bool,
         name: String,
@@ -53,9 +53,6 @@ pub enum Symbol {
         parameters: Vec<(String, Type)>, // Vector of (parameter name, parameter type)
         return_type: Option<Vec<Type>>,  // Optional vector of return types
         body: Rc<RefCell<SymbolTable>>,  // Function body with its own symbol table
-    },
-    MainFunction {
-        body: Rc<RefCell<SymbolTable>>, // Main function body with its own symbol table
     },
     ForLoop {
         iterator: String,
@@ -77,8 +74,7 @@ pub enum Symbol {
         then_body: Rc<RefCell<SymbolTable>>, // Then body with its own symbol table
         else_body: Option<Rc<RefCell<SymbolTable>>>, // Optional else body with its own symbol table
     },
-    Package(String), // Package name
-    Use(String),     // Use statement
+    Use(String), // Use statement
 }
 
 impl fmt::Display for Symbol {
@@ -164,11 +160,6 @@ impl fmt::Display for Symbol {
                 write!(f, "      body: {}\n", *body.borrow_mut())?;
                 write!(f, "    }}\n")
             }
-            Symbol::MainFunction { body } => {
-                write!(f, "    MainFunction {{\n",)?;
-                write!(f, "      body: {}\n", *body.borrow_mut())?;
-                write!(f, "    }}\n")
-            }
             Symbol::ForLoop {
                 iterator,
                 start,
@@ -218,11 +209,13 @@ impl fmt::Display for Symbol {
                 }
                 write!(f, "    }}\n")
             }
-            Symbol::Package(name) => {
-                write!(f, "    {}: Package\n", name)
-            }
             Symbol::Use(name) => {
                 write!(f, "    {}: Use\n", name)
+            }
+            Symbol::Block(table) => {
+                write!(f, "    Block {{\n",)?;
+                write!(f, "      table: {}\n", table.as_ref().unwrap().borrow_mut())?;
+                write!(f, "    }}\n")
             }
         }
     }
@@ -256,6 +249,10 @@ impl SymbolTable {
                 None => None,
             },
         }
+    }
+
+    pub fn get_symbols(&self) -> &HashMap<String, Symbol> {
+        &self.symbols
     }
 }
 

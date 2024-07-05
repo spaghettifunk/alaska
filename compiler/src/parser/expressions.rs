@@ -189,19 +189,19 @@ where
                 self.consume(T![')']);
                 expr
             }
-            T!['['] => {
-                self.consume(T!['[']);
-                let mut elements = Vec::new();
-                while !self.at(T![']']) {
-                    let element = self.parse_expression(0);
-                    elements.push(Rc::new(Arc::new(element?)));
-                    if self.at(T![,]) {
-                        self.consume(T![,]);
-                    }
-                }
-                self.consume(T![']']);
-                Ok(ast::Stmt::Array { elements })
-            }
+            // T!['['] => {
+            //     self.consume(T!['[']);
+            //     let mut elements = Vec::new();
+            //     while !self.at(T![']']) {
+            //         let element = self.parse_expression(0);
+            //         elements.push(Rc::new(Arc::new(element?)));
+            //         if self.at(T![,]) {
+            //             self.consume(T![,]);
+            //         }
+            //     }
+            //     self.consume(T![']']);
+            //     Ok(ast::Stmt::Array { elements })
+            // }
             op @ T![+] | op @ T![-] | op @ T![!] => {
                 self.consume(op);
                 let ((), right_binding_power) = op.prefix_binding_power();
@@ -216,7 +216,7 @@ where
                 self.consume(T![nil]);
                 Ok(ast::Stmt::Literal(ast::Lit::Nil()))
             }
-            // vector literals to be added
+            // example --> { 1, 2, 3 }
             T!['{'] => {
                 self.consume(T!['{']);
                 let mut elements = Vec::new();
@@ -231,7 +231,7 @@ where
                     }
                 }
                 self.consume(T!['}']);
-                Ok(ast::Stmt::Array { elements })
+                Ok(ast::Stmt::ArrayInitialization { elements })
             }
             found => {
                 return Err(ParseError::UnexpectedToken {

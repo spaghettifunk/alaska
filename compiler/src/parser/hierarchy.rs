@@ -460,7 +460,7 @@ where
         self.consume(T![;]);
 
         Ok(ast::Stmt::Let {
-            identifier: name,
+            name,
             statement: Rc::new(Arc::new(value.unwrap())),
         })
     }
@@ -1202,9 +1202,7 @@ mod tests {
 
         let let_stmt = &stmts[0];
         match &***let_stmt {
-            ast::Stmt::Let {
-                identifier: var_name, ..
-            } => assert_eq!(var_name, "x"),
+            ast::Stmt::Let { name: var_name, .. } => assert_eq!(var_name, "x"),
             _ => unreachable!(),
         }
 
@@ -1271,9 +1269,7 @@ mod tests {
                         assert_eq!(body.len(), 2);
                         let let_i = &body[0];
                         match &***let_i {
-                            ast::Stmt::Let {
-                                identifier: var_name, ..
-                            } => assert_eq!(var_name, "i"),
+                            ast::Stmt::Let { name: var_name, .. } => assert_eq!(var_name, "i"),
                             _ => unreachable!(),
                         }
                         let x_assignment = &body[1];
@@ -1329,7 +1325,7 @@ mod tests {
                 assert_eq!(iterator, "x");
                 assert_eq!(
                     range,
-                    Rc::new(Arc::new(ast::Stmt::Array {
+                    Rc::new(Arc::new(ast::Stmt::ArrayInitialization {
                         elements: vec![
                             Rc::new(Arc::new(ast::Stmt::Literal(ast::Lit::Int(0)))),
                             Rc::new(Arc::new(ast::Stmt::Literal(ast::Lit::Int(1)))),
@@ -1586,7 +1582,7 @@ mod tests {
         assert_eq!(
             expr,
             ast::Stmt::Let {
-                identifier: "k".to_string(),
+                name: "k".to_string(),
                 statement: Rc::new(Arc::new(ast::Stmt::InfixOp {
                     op: TokenKind::Plus,
                     lhs: Rc::new(Arc::new(ast::Stmt::InfixOp {

@@ -14,7 +14,7 @@ pub enum Stmt {
         name: String,
         args: Vec<Rc<Arc<Stmt>>>,
     },
-    Array {
+    ArrayInitialization {
         elements: Vec<Rc<Arc<Stmt>>>,
     },
     ArrayAccess {
@@ -38,17 +38,13 @@ pub enum Stmt {
         op: TokenKind,
         expr: Rc<Arc<Stmt>>,
     },
-    Comment {
-        text: String,
-    },
-    BlockComment {
-        text: String,
-    },
+    Comment(String),
+    BlockComment(String),
     Defer {
         stmt: Rc<Arc<Stmt>>,
     },
     Let {
-        identifier: String,
+        name: String,
         statement: Rc<Arc<Stmt>>,
     },
     Assignment {
@@ -229,7 +225,7 @@ impl fmt::Display for Stmt {
                 name: struct_name,
                 field,
             } => write!(f, "{}.{}", struct_name, field),
-            Stmt::Array { elements } => {
+            Stmt::ArrayInitialization { elements } => {
                 write!(f, "[")?;
                 for element in elements {
                     write!(f, "{},", element)?;
@@ -240,10 +236,10 @@ impl fmt::Display for Stmt {
             Stmt::PrefixOp { op, expr } => write!(f, "({} {})", op, expr),
             Stmt::InfixOp { op, lhs, rhs } => write!(f, "({} {} {})", lhs, op, rhs),
             Stmt::PostfixOp { op, expr } => write!(f, "({} {})", expr, op),
-            Stmt::Comment { text } => write!(f, "//{}", text),
-            Stmt::BlockComment { text } => write!(f, "/*{}*/", text),
+            Stmt::Comment(text) => write!(f, "//{}", text),
+            Stmt::BlockComment(text) => write!(f, "/*{}*/", text),
             Stmt::Let {
-                identifier: var_name,
+                name: var_name,
                 statement: value,
             } => write!(f, "let {} = {};", var_name, value),
             Stmt::Assignment { name: var_name, value } => write!(f, "{} = {};", var_name, value),
@@ -268,13 +264,6 @@ impl fmt::Display for Stmt {
                     write!(f, "{}\n", stmt)?;
                 }
                 write!(f, "}}")
-            }
-            Stmt::FunctionCall { args, name } => {
-                write!(f, "{}(", name)?;
-                for arg in args {
-                    write!(f, "{},", arg)?;
-                }
-                write!(f, ")")
             }
             Stmt::WhileStmt { condition, body } => {
                 write!(f, "while {} {{\n", condition)?;
@@ -416,7 +405,7 @@ impl fmt::Display for Stmt {
                 interfaces,
                 methods,
             } => {
-                write!(f, "impl")?;
+                write!(f, "impl {}", name)?;
                 if let Some(generics) = generics {
                     write!(f, "<")?;
                     for (i, generic) in generics.iter().enumerate() {

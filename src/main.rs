@@ -2,9 +2,9 @@ use std::{fs, path::Path};
 
 mod args;
 use args::Args;
-use compiler::eval::SemanticAnalyzer;
 use compiler::parser::ast::AST;
 use compiler::parser::Parser;
+use compiler::sema::SemanticAnalyzer;
 
 pub type Result<T> = anyhow::Result<T>;
 
@@ -28,9 +28,6 @@ fn main() -> Result<()> {
     let source_file = parser.parse_input("test.ask");
     match source_file {
         Ok(file) => {
-            // print ast
-            // println!("{:#?}", file);
-
             ast.files.push(file);
         }
         Err(e) => {
@@ -42,8 +39,19 @@ fn main() -> Result<()> {
     let mut sema = SemanticAnalyzer::new();
     match sema.symbols_collection(ast) {
         Ok(_) => {
-            println!("Analysis complete");
+            println!("First pass (symbols collection) - completed");
             println!("{}", sema);
+            match sema.forward_references() {
+                Ok(_) => {
+                    println!("Second pass (forward references) - completed");
+                }
+                Err(errors) => {
+                    for error in errors {
+                        eprintln!("{}", error);
+                    }
+                    std::process::exit(1);
+                }
+            }
         }
         Err(e) => {
             eprintln!("Error analyzing source file: {}", e);
