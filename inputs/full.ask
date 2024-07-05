@@ -15,19 +15,19 @@ interface Writer<T, Foo<E>> {
 
 // this works
 struct Banana<Bar<T, U>, Z, Boo<U, X>> {
-    Name string;
-    Noop int;
-    Apple char;
-    Orange float;
-    Fab Bar<T,U>;
-    Baf Z;
-    Goooooo Boo<U,X>;
+    Name string
+    Noop int
+    Apple char
+    Orange float
+    Fab Bar<T,U>
+    Baf Z
+    Goooooo Boo<U,X>
 }
 
 // TODO: in the evaluation pass, if a member is `pub` but the struct is not, return an error
 pub struct Test {
-    Name string; // fields always private
-    pub Age int; // this is a publicly accessible field
+    Name string // fields always private
+    pub Age int // this is a publicly accessible field
 }
 
 impl Banana<Bar<T, U>, Z, Boo<U, X>> with (Writer<T, Foo<E>>, Test) {

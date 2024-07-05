@@ -1,6 +1,5 @@
-use super::Result;
 use crate::lexer::TokenKind;
-use std::fmt;
+use std::{fmt, rc::Rc, sync::Arc};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
@@ -8,77 +7,73 @@ pub enum Stmt {
     Identifier(String),
     Interface {
         name: String,
-        type_: Option<Box<Type>>,
-        methods: Vec<Box<Stmt>>,
+        type_: Option<Type>,
+        methods: Vec<Rc<Arc<Stmt>>>,
     },
     FunctionCall {
         name: String,
-        args: Vec<Stmt>,
+        args: Vec<Rc<Arc<Stmt>>>,
     },
-    Array {
-        elements: Vec<Stmt>,
+    ArrayInitialization {
+        elements: Vec<Rc<Arc<Stmt>>>,
     },
     ArrayAccess {
         name: String,
-        index: Box<Stmt>,
+        index: Rc<Arc<Stmt>>,
     },
     StructAccess {
         name: String,
-        field: Box<Stmt>,
+        field: Rc<Arc<Stmt>>,
     },
     PrefixOp {
         op: TokenKind,
-        expr: Box<Stmt>,
+        expr: Rc<Arc<Stmt>>,
     },
     InfixOp {
         op: TokenKind,
-        lhs: Box<Stmt>,
-        rhs: Box<Stmt>,
+        lhs: Rc<Arc<Stmt>>,
+        rhs: Rc<Arc<Stmt>>,
     },
     PostfixOp {
         op: TokenKind,
-        expr: Box<Stmt>,
+        expr: Rc<Arc<Stmt>>,
     },
-    Comment {
-        text: String,
-    },
-    BlockComment {
-        text: String,
-    },
+    Comment(String),
+    BlockComment(String),
     Defer {
-        stmt: Box<Stmt>,
+        stmt: Rc<Arc<Stmt>>,
     },
     Let {
-        identifier: String,
-        statement: Box<Stmt>,
+        name: String,
+        statement: Rc<Arc<Stmt>>,
     },
     Assignment {
         name: String,
-        value: Box<Stmt>,
+        value: Rc<Arc<Stmt>>,
     },
     IfStmt {
-        condition: Box<Stmt>,
-        body: Vec<Stmt>,
-        else_stmt: Option<Box<Stmt>>,
+        condition: Rc<Arc<Stmt>>,
+        body: Vec<Rc<Arc<Stmt>>>,
+        else_stmt: Option<Rc<Arc<Stmt>>>,
     },
     RangeStmt {
         iterator: String,
-        range: Box<Stmt>,
-        body: Vec<Stmt>,
+        range: Rc<Arc<Stmt>>,
+        body: Vec<Rc<Arc<Stmt>>>,
     },
     WhileStmt {
-        condition: Box<Stmt>,
-        body: Vec<Stmt>,
+        condition: Rc<Arc<Stmt>>,
+        body: Vec<Rc<Arc<Stmt>>>,
     },
     MatchStmt {
-        value: Box<Stmt>,
-        arms: Vec<(Stmt, Vec<Stmt>)>,
+        value: Rc<Arc<Stmt>>,
+        arms: Vec<(Rc<Arc<Stmt>>, Vec<Rc<Arc<Stmt>>>)>,
     },
     Block {
-        stmts: Vec<Stmt>,
+        stmts: Vec<Rc<Arc<Stmt>>>,
     },
     Return {
-        value: Vec<Box<Stmt>>,
+        value: Vec<Rc<Arc<Stmt>>>,
     },
     StructMember {
         is_public: bool,
@@ -94,44 +89,44 @@ pub enum Stmt {
         is_public: bool,
         name: String,
         type_: Type,
-        members: Vec<Stmt>,
+        members: Vec<Rc<Arc<Stmt>>>,
     },
     StructInstantiation {
         name: String,
-        members: Vec<(String, Box<Stmt>)>,
+        members: Vec<(String, Rc<Arc<Stmt>>)>,
     },
     InterfaceFunctionSignature {
         name: String,
-        generics: Option<Vec<Box<Type>>>,
+        generics: Option<Vec<Type>>,
         parameters: Vec<(String, Type)>,
-        return_type: Option<Vec<Box<Type>>>,
+        return_type: Option<Vec<Type>>,
     },
     FunctionDeclaration {
         is_public: bool,
         name: String,
-        generics: Option<Vec<Box<Type>>>,
+        generics: Option<Vec<Type>>,
         parameters: Vec<(String, Type)>,
-        body: Vec<Stmt>,
-        return_type: Option<Vec<Box<Type>>>,
+        body: Vec<Rc<Arc<Stmt>>>,
+        return_type: Option<Vec<Type>>,
     },
     ImplDeclaration {
         name: String,
-        generics: Option<Vec<Box<Type>>>,
-        interfaces: Option<Vec<Box<Type>>>,
-        methods: Vec<Box<Stmt>>,
+        generics: Option<Vec<Type>>,
+        interfaces: Option<Vec<Type>>,
+        methods: Vec<Rc<Arc<Stmt>>>,
     },
     Constant {
         name: String,
         type_: Type,
-        value: Box<Stmt>,
+        value: Rc<Arc<Stmt>>,
     },
     ConstantGroup {
-        constants: Vec<Box<Stmt>>,
+        constants: Vec<Rc<Arc<Stmt>>>,
     },
-    Package {
+    PackageDeclaration {
         name: String,
     },
-    Use {
+    UseDeclaration {
         name: String,
     },
     Empty,
@@ -140,14 +135,14 @@ pub enum Stmt {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SourceFile {
     pub name: String,
-    pub statements: Vec<Result<Stmt>>,
+    pub statements: Vec<Rc<Arc<Stmt>>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Type {
     pub name: String,
     pub is_array: bool,
-    pub generics: Option<Vec<Box<Type>>>,
+    pub generics: Option<Vec<Type>>,
 }
 
 impl Type {
@@ -171,6 +166,9 @@ pub enum Lit {
     Bool(bool),
     Char(char),
     Nil(),
+    Struct(String),    // Struct type with the name of the struct
+    Interface(String), // Interface type with the name of the interface
+    Enum(String),      // Enum type with the name of the enum
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -204,6 +202,9 @@ impl fmt::Display for Lit {
             Lit::Bool(b) => write!(f, "{}", b),
             Lit::Char(c) => write!(f, "'{}'", c),
             Lit::Nil() => write!(f, "nil"),
+            Lit::Struct(s) => write!(f, "struct {}", s),
+            Lit::Interface(i) => write!(f, "interface {}", i),
+            Lit::Enum(e) => write!(f, "enum {}", e),
         }
     }
 }
@@ -224,7 +225,7 @@ impl fmt::Display for Stmt {
                 name: struct_name,
                 field,
             } => write!(f, "{}.{}", struct_name, field),
-            Stmt::Array { elements } => {
+            Stmt::ArrayInitialization { elements } => {
                 write!(f, "[")?;
                 for element in elements {
                     write!(f, "{},", element)?;
@@ -235,10 +236,10 @@ impl fmt::Display for Stmt {
             Stmt::PrefixOp { op, expr } => write!(f, "({} {})", op, expr),
             Stmt::InfixOp { op, lhs, rhs } => write!(f, "({} {} {})", lhs, op, rhs),
             Stmt::PostfixOp { op, expr } => write!(f, "({} {})", expr, op),
-            Stmt::Comment { text } => write!(f, "//{}", text),
-            Stmt::BlockComment { text } => write!(f, "/*{}*/", text),
+            Stmt::Comment(text) => write!(f, "//{}", text),
+            Stmt::BlockComment(text) => write!(f, "/*{}*/", text),
             Stmt::Let {
-                identifier: var_name,
+                name: var_name,
                 statement: value,
             } => write!(f, "let {} = {};", var_name, value),
             Stmt::Assignment { name: var_name, value } => write!(f, "{} = {};", var_name, value),
@@ -263,13 +264,6 @@ impl fmt::Display for Stmt {
                     write!(f, "{}\n", stmt)?;
                 }
                 write!(f, "}}")
-            }
-            Stmt::FunctionCall { args, name } => {
-                write!(f, "{}(", name)?;
-                for arg in args {
-                    write!(f, "{},", arg)?;
-                }
-                write!(f, ")")
             }
             Stmt::WhileStmt { condition, body } => {
                 write!(f, "while {} {{\n", condition)?;
@@ -356,8 +350,8 @@ impl fmt::Display for Stmt {
                 }
                 write!(f, "}}")
             }
-            Stmt::Package { name: path } => write!(f, "package {};", path),
-            Stmt::Use { name } => write!(f, "use {};", name),
+            Stmt::PackageDeclaration { name: path } => write!(f, "package {};", path),
+            Stmt::UseDeclaration { name } => write!(f, "use {};", name),
             Stmt::Defer { stmt } => write!(f, "defer {{\n{}\n}}", stmt),
             Stmt::Empty => write!(f, ""),
             Stmt::Interface { name, type_, methods } => {
@@ -411,7 +405,7 @@ impl fmt::Display for Stmt {
                 interfaces,
                 methods,
             } => {
-                write!(f, "impl")?;
+                write!(f, "impl {}", name)?;
                 if let Some(generics) = generics {
                     write!(f, "<")?;
                     for (i, generic) in generics.iter().enumerate() {
@@ -468,7 +462,7 @@ impl fmt::Display for SourceFile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "File: {}\n", self.name)?;
         for stmt in &self.statements {
-            write!(f, "{}\n", stmt.clone().unwrap())?;
+            write!(f, "{}\n", stmt.clone())?;
         }
         Ok(())
     }

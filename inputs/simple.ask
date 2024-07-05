@@ -1,7 +1,32 @@
 package main;
 
-fn main() -> int {
+fn test() -> string {
+    return "hello world";
+}
+
+fn main() -> int {    
     let f = 10 + 2;        // f = 12
     let k = (f - 3)/9 - 1; // k = 0
+
+    test();
+    let t = test{name: "davide", color: 2};
+    later();
+
+    if (f < 42) {
+        let k = "shadow variable k";
+        let f = 10+50;
+    }
+
+    return k;
+}
+
+struct test {
+    name string
+    color int
+}
+
+fn later() -> string {
+    let k = "hello later";
+
     return k;
 }

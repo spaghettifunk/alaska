@@ -11,7 +11,7 @@
       "cargo": {
         "args": ["build"]
       },
-      "args": ["--build", "inputs/full.ask"],
+      "args": ["--build", "inputs/simple.ask"],
       "cwd": "${workspaceFolder}"
     }
   ]
