@@ -37,13 +37,15 @@ fn main() -> Result<()> {
     }
 
     let mut sema = SemanticAnalyzer::new();
-    match sema.symbols_collection(ast) {
+    let result = sema.symbols_collection(ast);
+    match result {
         Ok(_) => {
             println!("First pass (symbols collection) - completed");
-            println!("{}", sema);
             match sema.forward_references() {
                 Ok(_) => {
                     println!("Second pass (forward references) - completed");
+                    println!("");
+                    println!("{}", sema);
                 }
                 Err(errors) => {
                     for error in errors {
@@ -53,8 +55,10 @@ fn main() -> Result<()> {
                 }
             }
         }
-        Err(e) => {
-            eprintln!("Error analyzing source file: {}", e);
+        Err(errors) => {
+            for error in errors {
+                eprintln!("{}", error);
+            }
             std::process::exit(1);
         }
     }

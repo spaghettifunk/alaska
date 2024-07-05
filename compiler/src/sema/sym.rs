@@ -84,138 +84,99 @@ impl fmt::Display for Symbol {
                 write!(f, "    {}: Identifier\n", name)
             }
             Symbol::Constant { name, type_, value } => {
-                write!(f, "    Constant {{\n")?;
-                write!(f, "      name: {}\n", name)?;
-                write!(f, "      type: {:?}\n", type_)?;
-                write!(f, "      value: {}\n", value)?;
-                write!(f, "    }}\n")
+                write!(f, "Constant(name: {}, type: {}, value: {})", name, type_, value)
             }
-            Symbol::Struct { is_public, name, table } => {
-                write!(f, "    Struct {{\n")?;
-                write!(f, "      is_public: {}\n", is_public)?;
-                write!(f, "      name: {}\n", name)?;
-                write!(f, "      table: {:?}\n", table)?;
-                write!(f, "    }}\n")
+            Symbol::Struct { is_public, name, .. } => {
+                write!(f, "Struct(name: {}, is_public: {})", name, is_public,)
             }
             Symbol::StructMember { is_public, name, type_ } => {
-                write!(f, "    StructMember {{\n")?;
-                write!(f, "      is_public: {}\n", is_public)?;
-                write!(f, "      name: {}\n", name)?;
-                write!(f, "      type: {}\n", type_)?;
-                write!(f, "    }}\n")
+                write!(
+                    f,
+                    "StructMember(name: {}, is_public: {}, type: {})",
+                    name, is_public, type_
+                )
             }
-            Symbol::Impl {
-                name,
-                interfaces,
-                table,
-            } => {
-                write!(f, "    Impl {{\n",)?;
-                write!(f, "      name: {}\n", name)?;
-                write!(f, "      interfaces: {:?}\n", interfaces)?;
-                write!(f, "      table: {:?}\n", table)?;
-                write!(f, "    }}\n")
+            Symbol::Impl { name, interfaces, .. } => {
+                if let Some(interfaces) = interfaces {
+                    let interfaces_str: Vec<String> = interfaces.iter().map(|i| i.to_string()).collect();
+                    write!(f, "Impl(name: {}, interfaces: [{}])\n", name, interfaces_str.join(", "))
+                } else {
+                    write!(f, "Impl(name: {}, interfaces: None)\n", name)
+                }
             }
-            Symbol::Interface { name, table } => {
-                write!(f, "    Interface {{\n",)?;
-                write!(f, "      name: {}\n", name)?;
-                write!(f, "      table: {:?}\n", table)?;
-                write!(f, "    }}\n")
+            Symbol::Interface { name, .. } => {
+                write!(f, "Interface(name: {})\n", name)
             }
             Symbol::InterfaceMethod {
                 name,
                 parameters,
                 return_type,
             } => {
-                write!(f, "    InterfaceMethod {{\n",)?;
-                write!(f, "      name: {}\n", name)?;
-                write!(f, "      parameters: {:?}\n", parameters)?;
-                write!(f, "      return_type: {:?}\n", return_type)?;
-                write!(f, "    }}\n")
+                write!(f, "InterfaceMethod(name: {}, parameters: [", name)?;
+                for (param_name, param_type) in parameters.iter() {
+                    write!(f, "({}, {}), ", param_name, param_type)?;
+                }
+                write!(f, "], return_type: [")?;
+                if let Some(return_type) = return_type {
+                    for r in return_type.iter() {
+                        write!(f, "{}, ", r)?;
+                    }
+                }
+                write!(f, "])")
             }
-            Symbol::Enum { is_public, name, table } => {
-                write!(f, "    Enum {{\n",)?;
-                write!(f, "      is_public: {}\n", is_public)?;
-                write!(f, "      name: {}\n", name)?;
-                write!(f, "      table: {:?}\n", table)?;
-                write!(f, "    }}\n")
+            Symbol::Enum { is_public, name, .. } => {
+                write!(f, "Enum(name: {}, is_public: {})\n", name, is_public)
             }
             Symbol::EnumMember { name, value } => {
-                write!(f, "    EnumMember {{\n",)?;
-                write!(f, "      name: {}\n", name)?;
-                write!(f, "      value: {}\n", value)?;
-                write!(f, "    }}\n")
+                write!(f, "EnumMember(name: {}, value: {})", name, value)
             }
             Symbol::Function {
                 is_public,
                 name,
                 parameters,
                 return_type,
-                body,
+                ..
             } => {
-                write!(f, "    Function {{\n",)?;
-                write!(f, "      is_public: {}\n", is_public)?;
-                write!(f, "      name: {}\n", name)?;
-                write!(f, "      parameters: {:?}\n", parameters)?;
-                write!(f, "      return_type: {:?}\n", return_type)?;
-                write!(f, "      body: {}\n", *body.borrow_mut())?;
-                write!(f, "    }}\n")
+                write!(f, "Function(name: {}, is_public: {}, parameters: [", name, is_public)?;
+                for (param_name, param_type) in parameters.iter() {
+                    write!(f, "({}, {}), ", param_name, param_type)?;
+                }
+                write!(f, "], return_type: [")?;
+                if let Some(return_type) = return_type {
+                    for r in return_type.iter() {
+                        write!(f, "{}, ", r)?;
+                    }
+                }
+                write!(f, "])\n")
             }
             Symbol::ForLoop {
-                iterator,
-                start,
-                end,
-                body,
+                iterator, start, end, ..
             } => {
                 write!(f, "    ForLoop {{\n",)?;
                 write!(f, "      iterator: {}\n", iterator)?;
                 write!(f, "      start: {}\n", start)?;
                 write!(f, "      end: {}\n", end)?;
-                write!(f, "      body: {}\n", *body.borrow_mut())?;
                 write!(f, "    }}\n")
             }
-            Symbol::RangeLoop {
-                iterator,
-                iterable,
-                body,
-            } => {
-                write!(f, "    ForLoop {{\n",)?;
+            Symbol::RangeLoop { iterator, iterable, .. } => {
+                write!(f, "    RangeLoop {{\n",)?;
                 write!(f, "      iterator: {}\n", iterator)?;
                 write!(f, "      iterable: {}\n", iterable)?;
-                write!(f, "      body: {}\n", *body.borrow_mut())?;
                 write!(f, "    }}\n")
             }
-            Symbol::WhileLoop { condition, body } => {
+            Symbol::WhileLoop { condition, .. } => {
                 write!(f, "    WhileLoop {{\n",)?;
                 write!(f, "      condition: {}\n", condition)?;
-                write!(f, "      body: {}\n", *body.borrow_mut())?;
                 write!(f, "    }}\n")
             }
-            Symbol::IfStatement {
-                condition,
-                then_body,
-                else_body,
-            } => {
-                write!(f, "    IfStatement {{\n",)?;
-                write!(f, "      condition: {}\n", condition)?;
-                write!(f, "      then_body: {}\n", *then_body.borrow_mut())?;
-                if else_body.is_some() {
-                    write!(
-                        f,
-                        "      else_body: {}\n",
-                        <Option<Rc<RefCell<SymbolTable>>> as Clone>::clone(&else_body)
-                            .unwrap()
-                            .borrow_mut()
-                    )?;
-                }
-                write!(f, "    }}\n")
+            Symbol::IfStatement { condition, .. } => {
+                write!(f, "    IfStatement",)
             }
             Symbol::Use(name) => {
-                write!(f, "    {}: Use\n", name)
+                write!(f, "    Use: {}\n", name)
             }
-            Symbol::Block(table) => {
-                write!(f, "    Block {{\n",)?;
-                write!(f, "      table: {}\n", table.as_ref().unwrap().borrow_mut())?;
-                write!(f, "    }}\n")
+            Symbol::Block(..) => {
+                write!(f, "    Block\n")
             }
         }
     }
@@ -244,10 +205,7 @@ impl SymbolTable {
     pub fn lookup(&self, name: &str) -> Option<Symbol> {
         match self.symbols.get(name) {
             Some(symbol) => Some(symbol.clone()),
-            None => match &self.parent {
-                Some(parent_scope) => parent_scope.borrow_mut().lookup(name),
-                None => None,
-            },
+            None => None,
         }
     }
 
@@ -258,14 +216,14 @@ impl SymbolTable {
 
 impl fmt::Display for SymbolTable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} SymbolTable {{\n", self.name)
-            .and_then(|_| {
-                for (symbol_name, symbol) in self.symbols.iter() {
-                    write!(f, "         {}: {:?}\n", symbol_name, symbol)?;
-                }
-                Ok(())
-            })
-            .and_then(|_| write!(f, "}}"))
+        writeln!(f, "SymbolTable: {}", self.name)?;
+        writeln!(f, "{}", "-".repeat(40))?;
+        writeln!(f, "{:<15} | {:<20}", "Symbol", "Details")?;
+        writeln!(f, "{}", "-".repeat(40))?;
+        for (key, symbol) in &self.symbols {
+            writeln!(f, "{:<15} | {}", key, symbol)?;
+        }
+        Ok(())
     }
 }
 
@@ -308,19 +266,49 @@ impl GlobalSymbolTable {
             Rc::new(RefCell::new(SymbolTable::new(sym_name.clone(), None))),
         );
     }
-}
 
-impl fmt::Display for GlobalSymbolTable {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "GlobalSymbolTable {{\n")?;
-        for (package_name, package) in self.packages.iter() {
-            write!(f, "  Package: {}\n", package_name)?;
-            write!(f, "  Symbols: {{\n")?;
-            for (symbol_name, symbol) in package.borrow_mut().symbols.iter() {
-                write!(f, "    {}: {}\n", symbol_name, symbol)?;
-            }
-            write!(f, "  }}\n")?;
+    pub fn debug_print_table(&self) {
+        for (package_name, symbol_table) in &self.packages {
+            println!("Package: {}", package_name);
+            let symbol_table = symbol_table.borrow();
+            println!("{}", symbol_table);
+            self.print_nested_tables(&symbol_table, 1);
         }
-        write!(f, "}}")
+    }
+
+    fn print_nested_tables(&self, table: &SymbolTable, depth: usize) {
+        for symbol in table.symbols.values() {
+            match symbol {
+                Symbol::Struct { table, .. }
+                | Symbol::Impl { table, .. }
+                | Symbol::Interface { table, .. }
+                | Symbol::Enum { table, .. }
+                | Symbol::Block(Some(table))
+                | Symbol::Function { body: table, .. }
+                | Symbol::ForLoop { body: table, .. }
+                | Symbol::RangeLoop { body: table, .. }
+                | Symbol::WhileLoop { body: table, .. } => {
+                    let nested_table = table.borrow();
+                    println!("Nested Table: {}", nested_table.name);
+                    println!("{}", nested_table);
+                    self.print_nested_tables(&nested_table, depth + 1);
+                }
+                Symbol::IfStatement {
+                    then_body, else_body, ..
+                } => {
+                    let then_table = then_body.borrow();
+                    println!("Then Table: {}", then_table.name);
+                    println!("{}", then_table);
+                    self.print_nested_tables(&then_table, depth + 1);
+                    if let Some(else_body) = else_body {
+                        let else_table = else_body.borrow();
+                        println!("Else Table: {}", else_table.name);
+                        println!("{}", else_table);
+                        self.print_nested_tables(&else_table, depth + 1);
+                    }
+                }
+                _ => {}
+            }
+        }
     }
 }

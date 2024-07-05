@@ -12,6 +12,11 @@ fn main() -> int {
     let t = test{name: "davide", color: 2};
     later();
 
+    if (f < 42) {
+        let k = "shadow variable k";
+        let f = 10+50;
+    }
+
     return k;
 }
 

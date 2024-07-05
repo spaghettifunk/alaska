@@ -30,7 +30,8 @@ impl SemanticAnalyzer {
     }
 
     // first pass to collect as many symbols as possible
-    pub fn symbols_collection(&mut self, ast: AST) -> Result<(), String> {
+    pub fn symbols_collection(&mut self, ast: AST) -> Result<(), Vec<String>> {
+        let mut errors: Vec<String> = Vec::new();
         for sourcefile in ast.files {
             println!("Symbols collection for file `{:?}`....", sourcefile.name);
             for stmt in sourcefile.statements {
@@ -40,12 +41,16 @@ impl SemanticAnalyzer {
                 match result {
                     Ok(_) => {}
                     Err(e) => {
-                        eprintln!("Error: {}", e);
-                        std::process::exit(1);
+                        errors.push(e);
                     }
                 }
             }
         }
+
+        if errors.len() > 0 {
+            return Err(errors);
+        }
+
         Ok(())
     }
 
@@ -265,38 +270,39 @@ impl SemanticAnalyzer {
                 else_stmt,
             } => {
                 let if_id = format!("if.{}", Uuid::new_v4().to_string());
-                let if_symbol_table = Rc::new(RefCell::new(SymbolTable::new(if_id.clone(), symbol_table.clone())));
-
-                let c = &**condition;
-                self.build_symbol_table(c.clone(), &Some(if_symbol_table.clone()))?;
-
-                for stmt in body {
-                    let s = &**stmt;
-                    self.build_symbol_table(s.clone(), &Some(if_symbol_table.clone()))?;
-                }
-
-                let else_id = format!("else.{}", Uuid::new_v4().to_string());
-                let mut else_symbol_table = None;
-                match else_stmt {
-                    Some(else_stmt) => {
-                        else_symbol_table = Some(Rc::new(RefCell::new(SymbolTable::new(
-                            else_id.clone(),
-                            symbol_table.clone(),
-                        ))));
-
-                        let e = &**else_stmt;
-                        self.build_symbol_table(e.clone(), &else_symbol_table.clone())?;
-                    }
-                    None => {}
-                }
-
                 match symbol_table {
                     Some(table) => {
+                        let c = &**condition;
+                        self.build_symbol_table(c.clone(), symbol_table)?;
+
+                        let then_symbol_table =
+                            Rc::new(RefCell::new(SymbolTable::new(if_id.clone(), symbol_table.clone())));
+
+                        for stmt in body {
+                            let s = &**stmt;
+                            self.build_symbol_table(s.clone(), &Some(then_symbol_table.clone()))?;
+                        }
+
+                        let else_id = format!("else.{}", Uuid::new_v4().to_string());
+                        let mut else_symbol_table = None;
+                        match else_stmt {
+                            Some(else_stmt) => {
+                                else_symbol_table = Some(Rc::new(RefCell::new(SymbolTable::new(
+                                    else_id.clone(),
+                                    symbol_table.clone(),
+                                ))));
+
+                                let e = &**else_stmt;
+                                self.build_symbol_table(e.clone(), &else_symbol_table.clone())?;
+                            }
+                            None => {}
+                        }
+
                         table.as_ref().borrow_mut().add_symbol(
                             if_id.clone(),
                             Symbol::IfStatement {
                                 condition: String::new(), // TODO: is this correct?
-                                then_body: if_symbol_table.clone(),
+                                then_body: then_symbol_table.clone(),
                                 else_body: else_symbol_table.clone(),
                             },
                         );
@@ -767,6 +773,6 @@ impl SemanticAnalyzer {
 
 impl fmt::Display for SemanticAnalyzer {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.global_symbol_table)
+        write!(f, "{:?}", self.global_symbol_table.debug_print_table())
     }
 }
