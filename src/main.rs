@@ -2,9 +2,9 @@ use std::{fs, path::Path};
 
 mod args;
 use args::Args;
-use compiler::parser::ast::AST;
-use compiler::parser::Parser;
-use compiler::sema::SemanticAnalyzer;
+use compiler_core::parser::ast::AST;
+use compiler_core::parser::Parser;
+use compiler_core::sema::SemanticAnalyzer;
 
 pub type Result<T> = anyhow::Result<T>;
 
