@@ -1,5 +1,3 @@
-use crate::lexer::Span;
-
 use super::*;
 use std::fmt;
 
@@ -8,10 +6,12 @@ pub enum ParseError {
     UnexpectedToken {
         found: TokenKind,
         expected: Vec<TokenKind>,
-        position: Span,
+        line: u32,
+        column: u32,
     },
     InvalidExpressionStatement {
-        position: Span,
+        line: u32,
+        column: u32,
     },
     MissingPackageStatement,
 }
@@ -22,23 +22,22 @@ impl From<&ParseError> for String {
             ParseError::UnexpectedToken {
                 found,
                 expected,
-                position,
+                line,
+                column,
             } => {
                 format!(
-                    "Unexpected token at {}-{}: found '{}', but expected {}",
-                    position.start,
-                    position.end,
+                    "Unexpected token at line {} and column {}: found '{}', but expected {}",
+                    line,
+                    column,
                     found,
                     token_list_to_string(expected)
                 )
             }
-            ParseError::InvalidExpressionStatement { position } => format!(
-                "Expression is invalid as statement at {}-{}",
-                position.start, position.end,
+            ParseError::InvalidExpressionStatement { line, column } => format!(
+                "Expression is invalid as statement at line {} and column {}",
+                line, column
             ),
-            ParseError::MissingPackageStatement => {
-                format!("Missing package statement at {}-{}", 0, 1,)
-            }
+            ParseError::MissingPackageStatement => "Missing package statement at top of the file".to_string(),
         }
     }
 }

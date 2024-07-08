@@ -106,10 +106,12 @@ where
 
             if multiple_types {
                 if !self.at(T![')']) {
+                    let line_col = self.line_column();
                     return Err(ParseError::UnexpectedToken {
                         found: self.peek(),
                         expected: vec![T![')']],
-                        position: self.position(),
+                        line: line_col.0,
+                        column: line_col.1,
                     });
                 } else {
                     self.consume(T![')']);
@@ -211,10 +213,12 @@ where
 
             if multiple_types {
                 if !self.at(T![')']) {
+                    let line_col = self.line_column();
                     return Err(ParseError::UnexpectedToken {
                         found: self.peek(),
                         expected: vec![T![')']],
-                        position: self.position(),
+                        line: line_col.0,
+                        column: line_col.1,
                     });
                 } else {
                     self.consume(T![')']);
@@ -267,8 +271,10 @@ where
             let fn_signature = self.parse_fn_signature();
 
             if !self.at(T![;]) {
+                let line_col = self.line_column();
                 return Err(ParseError::InvalidExpressionStatement {
-                    position: self.position(),
+                    line: line_col.0,
+                    column: line_col.1,
                 });
             }
             self.consume(T![;]);
@@ -278,8 +284,10 @@ where
                     methods.push(Rc::new(Arc::new(signature)));
                 }
                 Err(_) => {
+                    let line_col = self.line_column();
                     return Err(ParseError::InvalidExpressionStatement {
-                        position: self.position(),
+                        line: line_col.0,
+                        column: line_col.1,
                     });
                 }
             }
@@ -664,10 +672,12 @@ where
                 Ok(struct_inst?)
             }
             found => {
+                let line_col = self.line_column();
                 return Err(ParseError::UnexpectedToken {
                     found,
                     expected: vec![T![=], T![.], T![,], T!['(']],
-                    position: self.position(),
+                    line: line_col.0,
+                    column: line_col.1,
                 });
             }
         }
@@ -731,10 +741,12 @@ where
 
             if multiple_types {
                 if !self.at(T![')']) {
+                    let line_col = self.line_column();
                     return Err(ParseError::UnexpectedToken {
                         found: self.peek(),
                         expected: vec![T![')']],
-                        position: self.position(),
+                        line: line_col.0,
+                        column: line_col.1,
                     });
                 } else {
                     self.consume(T![')']);
@@ -802,9 +814,11 @@ where
                 match c {
                     Ok(c) => constants.push(Rc::new(Arc::new(c))),
                     Err(_) => {
+                        let line_col = self.line_column();
                         return Err(ParseError::InvalidExpressionStatement {
-                            position: self.position(),
-                        })
+                            line: line_col.0,
+                            column: line_col.1,
+                        });
                     }
                 }
             }
@@ -815,9 +829,11 @@ where
             match c {
                 Ok(c) => constants.push(Rc::new(Arc::new(c))),
                 Err(_) => {
+                    let line_col = self.line_column();
                     return Err(ParseError::InvalidExpressionStatement {
-                        position: self.position(),
-                    })
+                        line: line_col.0,
+                        column: line_col.1,
+                    });
                 }
             }
         }
@@ -880,10 +896,12 @@ where
                 Ok(ast::Stmt::Literal(ast::Lit::Nil()))
             }
             found => {
+                let line_col = self.line_column();
                 return Err(ParseError::UnexpectedToken {
                     found,
                     expected: vec![T![let], T![ident], T![return], T![if], T!['{'], T![for], T![defer]],
-                    position: self.position(),
+                    line: line_col.0,
+                    column: line_col.1,
                 });
             }
         };
@@ -911,8 +929,10 @@ where
                 T![use] => {
                     let stmt = self.parse_use();
                     if stmt.is_err() {
+                        let line_col = self.line_column();
                         return Err(ParseError::InvalidExpressionStatement {
-                            position: self.position(),
+                            line: line_col.0,
+                            column: line_col.1,
                         });
                     }
                     stmts.push(Rc::new(Arc::new(stmt?)));
@@ -933,10 +953,12 @@ where
                             stmts.push(Rc::new(Arc::new(stmt?)));
                         }
                         found => {
+                            let line_col = self.line_column();
                             return Err(ParseError::UnexpectedToken {
                                 found,
-                                expected: vec![T![fn], T![struct]],
-                                position: self.position(),
+                                expected: vec![T![fn], T![struct], T![enum]],
+                                line: line_col.0,
+                                column: line_col.1,
                             });
                         }
                     }
@@ -970,12 +992,8 @@ where
                     Ok(stmt) => {
                         stmts.push(Rc::new(Arc::new(stmt)));
                     }
-                    Err(_) => {
-                        return Err(ParseError::UnexpectedToken {
-                            found,
-                            expected: vec![T![let], T![ident], T![return], T![if], T!['{'], T![for], T![defer]],
-                            position: self.position(),
-                        });
+                    Err(e) => {
+                        return Err(e);
                     }
                 },
             }

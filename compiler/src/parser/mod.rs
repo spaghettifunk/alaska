@@ -69,6 +69,15 @@ where
         token.text(&self.input)
     }
 
+    /// Get the line number of a token.
+    pub(crate) fn line_column(&mut self) -> (u32, u32) {
+        let peek = self
+            .tokens
+            .peek()
+            .map(|token| (token.line_col.line, token.line_col.column));
+        peek.unwrap_or_else(|| (0, 0))
+    }
+
     /// Look-ahead one token and see what kind of token it is.
     pub(crate) fn peek(&mut self) -> TokenKind {
         self.tokens.peek().map(|token| token.kind).unwrap_or(T![EOF])
@@ -82,10 +91,6 @@ where
     /// Get the next token.
     pub(crate) fn next(&mut self) -> Option<Token> {
         self.tokens.next()
-    }
-
-    pub(crate) fn current(&mut self) -> Option<Token> {
-        self.tokens.peek().cloned()
     }
 
     /// Move forward one token in the input and check
