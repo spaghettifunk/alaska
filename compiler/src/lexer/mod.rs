@@ -1,7 +1,9 @@
+mod line_number;
 mod rules;
 mod token;
 
 use crate::T;
+use line_number::LineNumbers;
 pub use token::{Span, Token, TokenKind};
 
 use self::rules::{unambiguous_single_char, Rule};
@@ -9,6 +11,7 @@ use self::rules::{unambiguous_single_char, Rule};
 pub struct Lexer<'input> {
     input: &'input str,
     position: u32,
+    line_col: LineNumbers,
     eof: bool,
     rules: Vec<Rule>,
 }
@@ -18,6 +21,7 @@ impl<'input> Lexer<'input> {
         Self {
             input,
             position: 0,
+            line_col: LineNumbers::new(input),
             eof: false,
             rules: rules::get_rules(),
         }
@@ -57,6 +61,7 @@ impl<'input> Lexer<'input> {
                 start,
                 end: start + len,
             },
+            line_col: self.line_col.line_and_column_number(start),
         })
     }
 
@@ -91,6 +96,7 @@ impl<'input> Lexer<'input> {
                 start,
                 end: start + len,
             },
+            line_col: self.line_col.line_and_column_number(start),
         }
     }
 
@@ -114,6 +120,7 @@ impl<'input> Iterator for Lexer<'input> {
                     start: self.position,
                     end: self.position,
                 },
+                line_col: self.line_col.line_and_column_number(self.position),
             })
         } else {
             Some(self.next_token(&self.input[self.position as usize..]))

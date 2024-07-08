@@ -28,6 +28,7 @@ Here is a list of features that I'd like to implement in the language:
 - [ ] Implement `as` for type casting
 - [ ] Implement `&` and `*` for dereference and pointers
 - [ ] Garbage collection
+- [ ] Decorators using `@` like Python
 - [ ] Implement `modules`, `packages`, `registry`, etc for both internal/external dependencies
 - [ ] Implement Language Server for IDE
 - [ ] ....and more

@@ -234,6 +234,7 @@ where
                 Ok(ast::Stmt::ArrayInitialization { elements })
             }
             found => {
+                let line_col = self.line_column();
                 return Err(ParseError::UnexpectedToken {
                     found,
                     expected: vec![
@@ -250,7 +251,8 @@ where
                         T![!],
                         T![nil],
                     ],
-                    position: self.position(),
+                    line: line_col.0,
+                    column: line_col.1,
                 });
             }
         };
@@ -287,6 +289,7 @@ where
                 T![EOF] => break,
                 T!['('] | T![')'] | T!['['] | T![']'] | T!['{'] | T!['}'] | T![,] | T![;] => break,
                 found => {
+                    let line_col = self.line_column();
                     return Err(ParseError::UnexpectedToken {
                         found,
                         expected: vec![
@@ -317,7 +320,8 @@ where
                             T![<<=],
                             T![!],
                         ],
-                        position: self.position(),
+                        line: line_col.0,
+                        column: line_col.1,
                     });
                 }
             };

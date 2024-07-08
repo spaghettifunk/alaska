@@ -3,6 +3,8 @@ use std::{
     ops::{Index, Range},
 };
 
+use super::line_number::LineColumn;
+
 #[derive(Debug, PartialEq, Eq, Hash, Copy, Clone)]
 pub enum TokenKind {
     // Literals - 82
@@ -482,6 +484,7 @@ impl Index<Span> for str {
 pub struct Token {
     pub kind: TokenKind,
     pub span: Span,
+    pub line_col: LineColumn,
 }
 
 impl Token {
@@ -491,6 +494,10 @@ impl Token {
 
     pub fn text<'input>(&self, input: &'input str) -> &'input str {
         &input[self.span]
+    }
+
+    pub fn line(&self) -> LineColumn {
+        self.line_col
     }
 }
 
