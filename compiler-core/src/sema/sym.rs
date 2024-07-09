@@ -7,7 +7,11 @@ use crate::parser::ast::Type;
 
 #[derive(Debug, Clone)]
 pub enum Symbol {
-    Identifier(String), // Identifier with its type as a string
+    Identifier {
+        name: String,
+        type_: Type,   // Identifier type
+        value: String, // Identifier value as a String
+    },
     Constant {
         name: String,
         type_: Type,   // Constant type
@@ -34,8 +38,8 @@ pub enum Symbol {
     },
     InterfaceMethod {
         name: String,
-        parameters: Vec<(String, Type)>, // Vector of (parameter name, parameter type)
-        return_type: Option<Vec<Type>>,  // Optional vector of return types
+        parameters: Option<Vec<(String, Type)>>, // Vector of (parameter name, parameter type)
+        return_type: Option<Vec<Type>>,          // Optional vector of return types
     },
     Block(Option<Rc<RefCell<SymbolTable>>>), // Block with its own symbol table
     Enum {
@@ -50,9 +54,17 @@ pub enum Symbol {
     Function {
         is_public: bool,
         name: String,
-        parameters: Vec<(String, Type)>, // Vector of (parameter name, parameter type)
-        return_type: Option<Vec<Type>>,  // Optional vector of return types
-        body: Rc<RefCell<SymbolTable>>,  // Function body with its own symbol table
+        parameters: Option<Vec<(String, Type)>>, // Vector of (parameter name, parameter type)
+        return_type: Option<Vec<Type>>,          // Optional vector of return types
+        body: Rc<RefCell<SymbolTable>>,          // Function body with its own symbol table
+    },
+    FunctionParameter {
+        name: String,
+        type_: Type, // Function parameter type
+    },
+    FunctionCall {
+        name: String,
+        arguments: Option<Vec<Symbol>>, // Vector of argument names
     },
     ForLoop {
         iterator: String,
@@ -80,8 +92,8 @@ pub enum Symbol {
 impl fmt::Display for Symbol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Symbol::Identifier(name) => {
-                write!(f, "    {}: Identifier\n", name)
+            Symbol::Identifier { name, type_, value } => {
+                write!(f, "Identifier(name: {}, type: {}, value: {})", name, type_, value)
             }
             Symbol::Constant { name, type_, value } => {
                 write!(f, "Constant(name: {}, type: {}, value: {})", name, type_, value)
@@ -113,8 +125,10 @@ impl fmt::Display for Symbol {
                 return_type,
             } => {
                 write!(f, "InterfaceMethod(name: {}, parameters: [", name)?;
-                for (param_name, param_type) in parameters.iter() {
-                    write!(f, "({}, {}), ", param_name, param_type)?;
+                if parameters.is_some() {
+                    for (param_name, param_type) in parameters.as_ref().unwrap().iter() {
+                        write!(f, "({}, {}), ", param_name, param_type)?;
+                    }
                 }
                 write!(f, "], return_type: [")?;
                 if let Some(return_type) = return_type {
@@ -138,8 +152,10 @@ impl fmt::Display for Symbol {
                 ..
             } => {
                 write!(f, "Function(name: {}, is_public: {}, parameters: [", name, is_public)?;
-                for (param_name, param_type) in parameters.iter() {
-                    write!(f, "({}, {}), ", param_name, param_type)?;
+                if let Some(parameters) = parameters {
+                    for (param_name, param_type) in parameters.iter() {
+                        write!(f, "({}, {}), ", param_name, param_type)?;
+                    }
                 }
                 write!(f, "], return_type: [")?;
                 if let Some(return_type) = return_type {
@@ -152,31 +168,43 @@ impl fmt::Display for Symbol {
             Symbol::ForLoop {
                 iterator, start, end, ..
             } => {
-                write!(f, "    ForLoop {{\n",)?;
-                write!(f, "      iterator: {}\n", iterator)?;
-                write!(f, "      start: {}\n", start)?;
-                write!(f, "      end: {}\n", end)?;
-                write!(f, "    }}\n")
+                write!(f, "ForLoop {{\n",)?;
+                write!(f, "  iterator: {}\n", iterator)?;
+                write!(f, "  start: {}\n", start)?;
+                write!(f, "  end: {}\n", end)?;
+                write!(f, "}}\n")
             }
             Symbol::RangeLoop { iterator, iterable, .. } => {
-                write!(f, "    RangeLoop {{\n",)?;
-                write!(f, "      iterator: {}\n", iterator)?;
-                write!(f, "      iterable: {}\n", iterable)?;
-                write!(f, "    }}\n")
+                write!(f, "RangeLoop {{\n",)?;
+                write!(f, "  iterator: {}\n", iterator)?;
+                write!(f, "  iterable: {}\n", iterable)?;
+                write!(f, "}}\n")
             }
             Symbol::WhileLoop { condition, .. } => {
-                write!(f, "    WhileLoop {{\n",)?;
-                write!(f, "      condition: {}\n", condition)?;
-                write!(f, "    }}\n")
+                write!(f, "WhileLoop {{\n",)?;
+                write!(f, "   condition: {}\n", condition)?;
+                write!(f, "}}\n")
             }
             Symbol::IfStatement { condition, .. } => {
-                write!(f, "    IfStatement",)
+                write!(f, "IfStatement",)
             }
             Symbol::Use(name) => {
-                write!(f, "    Use: {}\n", name)
+                write!(f, "Use: {}\n", name)
             }
             Symbol::Block(..) => {
-                write!(f, "    Block\n")
+                write!(f, "Block\n")
+            }
+            Symbol::FunctionParameter { name, type_ } => {
+                write!(f, "FunctionParameter(name: {}, type: {})", name, type_)
+            }
+            Symbol::FunctionCall { name, arguments } => {
+                write!(f, "FunctionCall(name: {}, arguments: [", name)?;
+                if let Some(arguments) = arguments {
+                    for arg in arguments.iter() {
+                        write!(f, "{}, ", arg)?;
+                    }
+                }
+                write!(f, "])")
             }
         }
     }
@@ -203,10 +231,22 @@ impl SymbolTable {
     }
 
     pub fn lookup(&self, name: &str) -> Option<Symbol> {
-        match self.symbols.get(name) {
-            Some(symbol) => Some(symbol.clone()),
-            None => None,
+        // First, try to find the symbol in the current table
+        if let Some(symbol) = self.symbols.get(name) {
+            return Some(symbol.clone());
         }
+
+        // If not found, recursively look in the parent table
+        if let Some(parent_table) = &self.parent {
+            return parent_table.as_ref().borrow().lookup(name);
+        }
+
+        // If not found in the current or any parent table, return None
+        None
+    }
+
+    pub fn lookup_local_scope(&self, name: &str) -> Option<Symbol> {
+        self.symbols.get(name).cloned()
     }
 
     pub fn get_symbols(&self) -> &HashMap<String, Symbol> {
@@ -270,7 +310,7 @@ impl GlobalSymbolTable {
     pub fn debug_print_table(&self) {
         for (package_name, symbol_table) in &self.packages {
             println!("Package: {}", package_name);
-            let symbol_table = symbol_table.borrow();
+            let symbol_table = symbol_table.as_ref().borrow().clone();
             println!("{}", symbol_table);
             self.print_nested_tables(&symbol_table, 1);
         }
@@ -288,7 +328,7 @@ impl GlobalSymbolTable {
                 | Symbol::ForLoop { body: table, .. }
                 | Symbol::RangeLoop { body: table, .. }
                 | Symbol::WhileLoop { body: table, .. } => {
-                    let nested_table = table.borrow();
+                    let nested_table = table.as_ref().borrow();
                     println!("Nested Table: {}", nested_table.name);
                     println!("{}", nested_table);
                     self.print_nested_tables(&nested_table, depth + 1);
@@ -296,12 +336,12 @@ impl GlobalSymbolTable {
                 Symbol::IfStatement {
                     then_body, else_body, ..
                 } => {
-                    let then_table = then_body.borrow();
+                    let then_table = then_body.as_ref().borrow();
                     println!("Then Table: {}", then_table.name);
                     println!("{}", then_table);
                     self.print_nested_tables(&then_table, depth + 1);
                     if let Some(else_body) = else_body {
-                        let else_table = else_body.borrow();
+                        let else_table = else_body.as_ref().borrow();
                         println!("Else Table: {}", else_table.name);
                         println!("{}", else_table);
                         self.print_nested_tables(&else_table, depth + 1);

@@ -6,7 +6,7 @@ mod expressions;
 mod hierarchy;
 
 use crate::{
-    lexer::{Lexer, Span, Token, TokenKind},
+    lexer::{Lexer, Token, TokenKind},
     T,
 };
 
@@ -105,11 +105,5 @@ where
             "Expected to consume `{}`, but found `{}`",
             expected, token.kind
         );
-    }
-
-    /// Returns the [`Span`] of the next token, or an empty span at byte 0 if at the end of input.
-    pub(crate) fn position(&mut self) -> Span {
-        let peek = self.tokens.peek().map(|token| token.span);
-        peek.unwrap_or_else(|| (0..0).into())
     }
 }

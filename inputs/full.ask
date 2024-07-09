@@ -54,13 +54,13 @@ impl Banana<Bar<T, U>, Z, Boo<U, X>> with (Writer<T, Foo<E>>, Test) {
 pub enum Fancy {
     Value,
     Another,
-    MegaValue,
+    MegaValue
 }
 
 enum FancyEnum {
     Lalalala,
     Test,
-    MegaTest,
+    MegaTest
 }
 
 // these are immutable values!

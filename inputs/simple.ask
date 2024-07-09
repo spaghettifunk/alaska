@@ -6,8 +6,8 @@ fn test() -> string {
 }
 
 fn main() -> int {    
-    let f = 10 + 2;        // f = 12
-    let k = (f - 3)/9 - 1; // k = 0
+    let f = 10 + 11;        // f = 21
+    let k = (f - 3)/9 - 1; // k = 1
 
     test();
     let t = test{name: "davide", color: 2};
@@ -16,7 +16,11 @@ fn main() -> int {
     if (f < 42) {
         let k = "shadow variable k";
         let f = 10+50;
+    } else {
+        return f;
     }
+
+    k = fancy(f, k); // k = 21
 
     return k;
 }
@@ -26,8 +30,12 @@ struct test {
     color int
 }
 
-fn later() -> string {
+fn later(xk: int) -> string {
     let k = "hello later";
 
     return k;
+}
+
+fn fancy(a: int, b: int) -> int {
+    return b*a;
 }

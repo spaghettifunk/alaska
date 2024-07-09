@@ -31,7 +31,7 @@ impl Operator for TokenKind {
 
     fn infix_binding_power(&self) -> Option<(u8, u8)> {
         let result = match self {
-            T![=] | T![+=] | T![-=] | T![*=] | T![/=] | T![%=] | T![&=] | T![|=] | T![^=] | T![<<=] | T![>>=] => (1, 2),
+            T![+=] | T![-=] | T![*=] | T![/=] | T![%=] | T![&=] | T![|=] | T![^=] | T![<<=] | T![>>=] => (1, 2),
             T![||] => (3, 4),
             T![&&] => (5, 6),
             T![==] | T![!=] => (7, 8),
@@ -39,7 +39,7 @@ impl Operator for TokenKind {
             T![+] | T![-] => (11, 12),
             T![*] | T![/] => (13, 14),
             T![^] => (22, 21),
-            T![.] => (31, 32), // <- This binds stronger to the left!
+            // T![.] => (31, 32), // <- This binds stronger to the left!
             _ => return None,
         };
         Some(result)
@@ -59,8 +59,8 @@ where
     I: Iterator<Item = Token>,
 {
     #[inline]
-    pub fn expression(&mut self) -> Result<ast::Stmt> {
-        match self.parse_expression(0) {
+    pub fn parse_expression(&mut self) -> Result<ast::Stmt> {
+        match self.expression(0) {
             Ok(expr) => return Ok(expr),
             Err(found) => return Err(found),
         }
@@ -70,7 +70,7 @@ where
         let mut args = Vec::new();
         self.consume(T!['(']);
         while !self.at(T![')']) {
-            let arg = self.expression();
+            let arg = self.parse_expression();
             args.push(Rc::new(Arc::new(arg?)));
             if self.at(T![,]) {
                 self.consume(T![,]);
@@ -83,7 +83,7 @@ where
 
     fn parse_exp_array_access(&mut self, array: String) -> Result<ast::Stmt> {
         self.consume(T!['[']);
-        let index = self.expression();
+        let index = self.parse_expression();
         self.consume(T![']']);
 
         Ok(ast::Stmt::ArrayAccess {
@@ -92,7 +92,7 @@ where
         })
     }
 
-    fn parse_expression(&mut self, binding_power: u8) -> Result<ast::Stmt> {
+    fn expression(&mut self, binding_power: u8) -> Result<ast::Stmt> {
         let next = self.peek();
         let mut lhs = match next {
             // `lit @ T![int]` (and similar) gives a name to the kind that is matched, so that I can use it again in the second match.
@@ -143,12 +143,12 @@ where
                     let arr = self.parse_exp_array_access(name);
                     arr
                 } else if self.at(T!['(']) {
-                    let fn_ = self.parse_expr_fn_call(name);
-                    fn_
+                    let fn_call = self.parse_expr_fn_call(name);
+                    fn_call
                 } else if self.at(T![.]) {
                     // caller needs to consume the dot
                     self.consume(T![.]);
-                    let expr = self.expression();
+                    let expr = self.parse_expression();
                     Ok(ast::Stmt::StructAccess {
                         name,
                         field: Rc::new(Arc::new(expr?)),
@@ -168,7 +168,7 @@ where
                         );
                         let member_name = self.text(member_ident).to_string();
                         self.consume(T![:]);
-                        let member_value = self.expression();
+                        let member_value = self.parse_expression();
                         members.push((member_name, Rc::new(Arc::new(member_value?))));
                         if self.at(T![,]) {
                             self.consume(T![,]);
@@ -178,34 +178,28 @@ where
                     Ok(ast::Stmt::StructInstantiation { name, members })
                 } else {
                     // plain identifier
-                    Ok(ast::Stmt::Identifier(name))
+                    Ok(ast::Stmt::Identifier {
+                        name,
+                        type_: ast::Type {
+                            name: "unknown".to_string(),
+                            is_array: false,
+                            generics: None,
+                        },
+                    })
                 }
             }
             T!['('] => {
                 // There is no AST node for grouped expressions.
                 // Parentheses just influence the tree structure.
                 self.consume(T!['(']);
-                let expr = self.parse_expression(0);
+                let expr = self.expression(0);
                 self.consume(T![')']);
                 expr
             }
-            // T!['['] => {
-            //     self.consume(T!['[']);
-            //     let mut elements = Vec::new();
-            //     while !self.at(T![']']) {
-            //         let element = self.parse_expression(0);
-            //         elements.push(Rc::new(Arc::new(element?)));
-            //         if self.at(T![,]) {
-            //             self.consume(T![,]);
-            //         }
-            //     }
-            //     self.consume(T![']']);
-            //     Ok(ast::Stmt::Array { elements })
-            // }
             op @ T![+] | op @ T![-] | op @ T![!] => {
                 self.consume(op);
                 let ((), right_binding_power) = op.prefix_binding_power();
-                let expr = self.parse_expression(right_binding_power);
+                let expr = self.expression(right_binding_power);
 
                 Ok(ast::Stmt::PrefixOp {
                     op,
@@ -221,7 +215,7 @@ where
                 self.consume(T!['{']);
                 let mut elements = Vec::new();
                 while !self.at(T!['}']) {
-                    let value = self.parse_expression(0);
+                    let value = self.expression(0);
                     match value {
                         Ok(val) => elements.push(Rc::new(Arc::new(val))),
                         Err(err) => return Err(err),
@@ -258,36 +252,35 @@ where
         };
 
         loop {
-            let next = self.peek();
-            let op = match next {
-                T![+]
-                | T![-]
-                | T![*]
-                | T![/]
-                | T![^]
-                | T![.]
-                | T![=]
-                | T![+=]
-                | T![-=]
-                | T![*=]
-                | T![/=]
-                | T![%=]
-                | T![&=]
-                | T![|=]
-                | T![^=]
-                | T![==]
-                | T![!=]
-                | T![&&]
-                | T![||]
-                | T![<]
-                | T![<=]
-                | T![>]
-                | T![>=]
-                | T![>>=]
-                | T![<<=]
-                | T![!] => next,
+            let op = match self.peek() {
+                op @ T![+]
+                | op @ T![-]
+                | op @ T![*]
+                | op @ T![/]
+                | op @ T![^]
+                | op @ T![.]
+                | op @ T![=]
+                | op @ T![+=]
+                | op @ T![-=]
+                | op @ T![*=]
+                | op @ T![/=]
+                | op @ T![%=]
+                | op @ T![&=]
+                | op @ T![|=]
+                | op @ T![^=]
+                | op @ T![==]
+                | op @ T![!=]
+                | op @ T![&&]
+                | op @ T![||]
+                | op @ T![<]
+                | op @ T![<=]
+                | op @ T![>]
+                | op @ T![>=]
+                | op @ T![>>=]
+                | op @ T![<<=]
+                | op @ T![!] => op,
                 T![EOF] => break,
-                T!['('] | T![')'] | T!['['] | T![']'] | T!['{'] | T!['}'] | T![,] | T![;] => break,
+                T![')'] | T![']'] | T!['}'] | T![,] | T![;] => break,
                 found => {
                     let line_col = self.line_column();
                     return Err(ParseError::UnexpectedToken {
@@ -352,7 +345,7 @@ where
                 }
 
                 self.consume(op);
-                let rhs = self.parse_expression(right_binding_power);
+                let rhs = self.expression(right_binding_power);
                 lhs = Ok(ast::Stmt::InfixOp {
                     op,
                     lhs: Rc::new(Arc::new(lhs?)),
@@ -380,7 +373,7 @@ mod tests {
     fn parse_expression() {
         fn parse(input: &str) -> ast::Stmt {
             let mut parser = Parser::new(input);
-            parser.expression().unwrap()
+            parser.parse_expression().unwrap()
         }
 
         // Weird spaces are to test that whitespace gets filtered out
@@ -391,14 +384,31 @@ mod tests {
         let expr = parse(r#""I am a String!""#);
         assert_eq!(expr, ast::Stmt::Literal(ast::Lit::Str("I am a String!".to_string())));
         let expr = parse("foo");
-        assert_eq!(expr, ast::Stmt::Identifier("foo".to_string()));
+        assert_eq!(
+            expr,
+            ast::Stmt::Identifier {
+                name: "foo".to_string(),
+                type_: ast::Type {
+                    name: "unknown".to_string(),
+                    is_array: false,
+                    generics: None,
+                },
+            }
+        );
         let expr = parse("bar (  x, 2)");
         assert_eq!(
             expr,
             ast::Stmt::FunctionCall {
                 name: "bar".to_string(),
                 args: vec![
-                    Rc::new(Arc::new(ast::Stmt::Identifier("x".to_string()))),
+                    Rc::new(Arc::new(ast::Stmt::Identifier {
+                        name: "x".to_string(),
+                        type_: ast::Type {
+                            name: "unknown".to_string(),
+                            is_array: false,
+                            generics: None,
+                        },
+                    })),
                     Rc::new(Arc::new(ast::Stmt::Literal(ast::Lit::Int(2)))),
                 ],
             }
@@ -408,7 +418,14 @@ mod tests {
             expr,
             ast::Stmt::PrefixOp {
                 op: T![!],
-                expr: Rc::new(Arc::new(ast::Stmt::Identifier("is_visible".to_string()))),
+                expr: Rc::new(Arc::new(ast::Stmt::Identifier {
+                    name: "is_visible".to_string(),
+                    type_: ast::Type {
+                        name: "unknown".to_string(),
+                        is_array: false,
+                        generics: None,
+                    },
+                })),
             }
         );
         let expr = parse("(-13)");
@@ -425,7 +442,7 @@ mod tests {
     fn parse_binary_expressions() {
         fn parse(input: &str) -> ast::Stmt {
             let mut parser = Parser::new(input);
-            parser.expression().unwrap()
+            parser.parse_expression().unwrap()
         }
 
         let expr = parse("4 + 2 * 3");
@@ -475,7 +492,7 @@ mod tests {
     fn parse_postfix_op() {
         fn parse(input: &str) -> ast::Stmt {
             let mut parser = Parser::new(input);
-            parser.expression().unwrap()
+            parser.parse_expression().unwrap()
         }
 
         let expr = parse("4 + -2! * 3");

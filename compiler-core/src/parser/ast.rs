@@ -4,7 +4,10 @@ use std::{fmt, rc::Rc, sync::Arc};
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
     Literal(Lit),
-    Identifier(String),
+    Identifier {
+        name: String,
+        type_: Type,
+    },
     Interface {
         name: String,
         type_: Option<Type>,
@@ -98,14 +101,14 @@ pub enum Stmt {
     InterfaceFunctionSignature {
         name: String,
         generics: Option<Vec<Type>>,
-        parameters: Vec<(String, Type)>,
+        parameters: Option<Vec<(String, Type)>>,
         return_type: Option<Vec<Type>>,
     },
     FunctionDeclaration {
         is_public: bool,
         name: String,
         generics: Option<Vec<Type>>,
-        parameters: Vec<(String, Type)>,
+        parameters: Option<Vec<(String, Type)>>,
         body: Vec<Rc<Arc<Stmt>>>,
         return_type: Option<Vec<Type>>,
     },
@@ -213,7 +216,7 @@ impl fmt::Display for Stmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Stmt::Literal(lit) => write!(f, "{}", lit),
-            Stmt::Identifier(name) => write!(f, "{}", name),
+            Stmt::Identifier { name, type_ } => write!(f, "{}", name),
             Stmt::FunctionCall { name, args } => {
                 write!(f, "{}(", name)?;
                 for arg in args {
@@ -334,11 +337,13 @@ impl fmt::Display for Stmt {
                     }
                     write!(f, ">")?;
                 }
-                for (i, (name, type_)) in parameters.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
+                if parameters.is_some() {
+                    for (i, (name, type_)) in parameters.clone().unwrap().iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}: {}", name, type_)?;
                     }
-                    write!(f, "{}: {}", name, type_)?;
                 }
                 write!(f, ")")?;
                 if let Some(return_type) = return_type {
@@ -381,11 +386,13 @@ impl fmt::Display for Stmt {
                     }
                     write!(f, ">")?;
                 }
-                for (i, (name, type_)) in parameters.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
+                if parameters.is_some() {
+                    for (i, (name, type_)) in parameters.as_ref().unwrap().iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}: {}", name, type_)?;
                     }
-                    write!(f, "{}: {}", name, type_)?;
                 }
                 write!(f, ")")?;
                 if let Some(return_type) = return_type {
