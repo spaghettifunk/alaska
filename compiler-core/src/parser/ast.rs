@@ -10,7 +10,7 @@ pub enum Stmt {
     },
     Interface {
         name: String,
-        type_: Option<Type>,
+        type_: Type,
         methods: Vec<Rc<Arc<Stmt>>>,
     },
     FunctionCall {
@@ -48,10 +48,12 @@ pub enum Stmt {
     },
     Let {
         name: String,
+        type_: Type,
         statement: Rc<Arc<Stmt>>,
     },
     Assignment {
         name: String,
+        type_: Type,
         value: Rc<Arc<Stmt>>,
     },
     IfStmt {
@@ -86,6 +88,7 @@ pub enum Stmt {
     Enum {
         is_public: bool,
         name: String,
+        type_: Type,
         members: Vec<String>,
     },
     StructDeclaration {
@@ -141,11 +144,11 @@ pub struct SourceFile {
     pub statements: Vec<Rc<Arc<Stmt>>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Type {
-    pub name: String,
-    pub is_array: bool,
-    pub generics: Option<Vec<Type>>,
+    name: String,
+    literal: Lit,
+    generics: Option<Vec<Type>>,
 }
 
 impl Type {
@@ -155,9 +158,21 @@ impl Type {
     pub fn default() -> Self {
         Type {
             name: String::new(),
-            is_array: false,
+            literal: Lit::Unknown,
             generics: None,
         }
+    }
+
+    pub fn new(name: String, literal: Lit, generics: Option<Vec<Type>>) -> Self {
+        Type {
+            name,
+            literal,
+            generics,
+        }
+    }
+
+    pub fn compare(&self, other: &Type) -> bool {
+        self.name == other.name && self.literal == other.literal && self.generics == other.generics
     }
 }
 
@@ -172,6 +187,49 @@ pub enum Lit {
     Struct(String),    // Struct type with the name of the struct
     Interface(String), // Interface type with the name of the interface
     Enum(String),      // Enum type with the name of the enum
+    Unknown,
+}
+
+impl Lit {
+    pub fn to_string(&self) -> String {
+        match self {
+            Lit::Int(i) => i.to_string(),
+            Lit::Float(fl) => fl.to_string(),
+            Lit::Str(s) => s.clone(),
+            Lit::Bool(b) => b.to_string(),
+            Lit::Char(c) => c.to_string(),
+            Lit::Nil() => "nil".to_string(),
+            Lit::Struct(s) => format!("struct {}", s),
+            Lit::Interface(i) => format!("interface {}", i),
+            Lit::Enum(e) => format!("enum {}", e),
+            Lit::Unknown => "unknown".to_string(),
+        }
+    }
+
+    pub fn from_string(s: String) -> Lit {
+        if let Ok(i) = s.parse::<usize>() {
+            return Lit::Int(i);
+        }
+        if let Ok(fl) = s.parse::<f64>() {
+            return Lit::Float(fl);
+        }
+        if s == "nil" {
+            return Lit::Nil();
+        }
+        if s == "true" {
+            return Lit::Bool(true);
+        }
+        if s == "false" {
+            return Lit::Bool(false);
+        }
+        if s.starts_with('\'') && s.ends_with('\'') {
+            return Lit::Char(s.chars().nth(1).unwrap());
+        }
+        if s.starts_with('"') && s.ends_with('"') {
+            return Lit::Str(s[1..s.len() - 1].to_string());
+        }
+        Lit::Unknown
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -208,6 +266,7 @@ impl fmt::Display for Lit {
             Lit::Struct(s) => write!(f, "struct {}", s),
             Lit::Interface(i) => write!(f, "interface {}", i),
             Lit::Enum(e) => write!(f, "enum {}", e),
+            Lit::Unknown => write!(f, "unknown"),
         }
     }
 }
@@ -242,10 +301,11 @@ impl fmt::Display for Stmt {
             Stmt::Comment(text) => write!(f, "//{}", text),
             Stmt::BlockComment(text) => write!(f, "/*{}*/", text),
             Stmt::Let {
-                name: var_name,
+                name,
+                type_,
                 statement: value,
-            } => write!(f, "let {} = {};", var_name, value),
-            Stmt::Assignment { name: var_name, value } => write!(f, "{} = {};", var_name, value),
+            } => write!(f, "let {}: {} = {};", name, type_, value),
+            Stmt::Assignment { name, type_, value } => write!(f, "{}: {} = {};", name, type_, value),
             Stmt::IfStmt {
                 condition,
                 body,
@@ -309,7 +369,7 @@ impl fmt::Display for Stmt {
                 if *is_public {
                     write!(f, "pub ")?;
                 }
-                write!(f, "struct {}<{}> {{\n", name, type_)?;
+                write!(f, "struct {}: {} {{\n", name, type_)?;
                 for m in members {
                     write!(f, "{}\n", m)?;
                 }
@@ -361,9 +421,7 @@ impl fmt::Display for Stmt {
             Stmt::Empty => write!(f, ""),
             Stmt::Interface { name, type_, methods } => {
                 write!(f, "interface {} {{\n", name)?;
-                if let Some(type_) = type_ {
-                    write!(f, "{}\n", type_)?;
-                }
+                write!(f, "{}\n", type_)?;
                 for method in methods {
                     write!(f, "{}\n", method)?;
                 }
@@ -450,12 +508,13 @@ impl fmt::Display for Stmt {
             Stmt::Enum {
                 is_public,
                 name,
+                type_,
                 members,
             } => {
                 if *is_public {
                     write!(f, "pub ")?;
                 }
-                write!(f, "enum {} {{\n", name)?;
+                write!(f, "enum {}: {} {{\n", name, type_)?;
                 for member in members {
                     write!(f, "{}\n", member)?;
                 }

@@ -179,12 +179,8 @@ where
                 } else {
                     // plain identifier
                     Ok(ast::Stmt::Identifier {
-                        name,
-                        type_: ast::Type {
-                            name: "unknown".to_string(),
-                            is_array: false,
-                            generics: None,
-                        },
+                        name: name.clone(),
+                        type_: ast::Type::new("unknown".to_string(), ast::Lit::Unknown, None),
                     })
                 }
             }
@@ -388,11 +384,7 @@ mod tests {
             expr,
             ast::Stmt::Identifier {
                 name: "foo".to_string(),
-                type_: ast::Type {
-                    name: "unknown".to_string(),
-                    is_array: false,
-                    generics: None,
-                },
+                type_: ast::Type::new("unknown".to_string(), ast::Lit::Unknown, None),
             }
         );
         let expr = parse("bar (  x, 2)");
@@ -403,11 +395,7 @@ mod tests {
                 args: vec![
                     Rc::new(Arc::new(ast::Stmt::Identifier {
                         name: "x".to_string(),
-                        type_: ast::Type {
-                            name: "unknown".to_string(),
-                            is_array: false,
-                            generics: None,
-                        },
+                        type_: ast::Type::new("unknown".to_string(), ast::Lit::Unknown, None),
                     })),
                     Rc::new(Arc::new(ast::Stmt::Literal(ast::Lit::Int(2)))),
                 ],
@@ -420,11 +408,7 @@ mod tests {
                 op: T![!],
                 expr: Rc::new(Arc::new(ast::Stmt::Identifier {
                     name: "is_visible".to_string(),
-                    type_: ast::Type {
-                        name: "unknown".to_string(),
-                        is_array: false,
-                        generics: None,
-                    },
+                    type_: ast::Type::new("unknown".to_string(), ast::Lit::Unknown, None),
                 })),
             }
         );

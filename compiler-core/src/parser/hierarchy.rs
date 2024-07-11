@@ -297,7 +297,7 @@ where
 
         Ok(ast::Stmt::Interface {
             name: interface_name,
-            type_: Some(interface_type),
+            type_: interface_type,
             methods,
         })
     }
@@ -365,7 +365,7 @@ where
             ident.kind
         );
 
-        let enum_name = self.text(ident).to_string();
+        let name = self.text(ident).to_string();
         let mut members = Vec::new();
         self.consume(T!['{']);
         while !self.at(T!['}']) {
@@ -389,8 +389,9 @@ where
 
         Ok(ast::Stmt::Enum {
             is_public,
-            name: enum_name,
+            name: name.clone(),
             members,
+            type_: ast::Type::new(name.clone(), ast::Lit::Enum(name.clone()), None),
         })
     }
 
@@ -429,30 +430,29 @@ where
                     found => panic!("Expected `,` or `>` after generic type, found `{}` instead", found),
                 }
             }
-            // we can't have arrays with a generic type
-            // there must always be a known type at compile time, like `int`, `float`, etc
-            ast::Type {
-                name: type_name.unwrap(),
-                is_array: false,
-                generics: Some(generics),
-            }
+            ast::Type::new(
+                type_name.clone().unwrap(),
+                ast::Lit::from_string(type_name.clone().unwrap()),
+                if generics.len() > 0 { Some(generics) } else { None },
+            )
         // check if the type is an array
         } else if self.at(T!['[']) {
             // array declaration
             self.consume(T!['[']);
             self.consume(T![']']);
-            ast::Type {
-                name: type_name.unwrap(),
-                is_array: true,
-                generics: None,
-            }
+            // TODO: do I need to mark the Type object that it is an array?
+            ast::Type::new(
+                type_name.clone().unwrap(),
+                ast::Lit::from_string(type_name.clone().unwrap()),
+                None,
+            )
         // just a name of a type - probably coming from a struct or elsewhere
         } else {
-            ast::Type {
-                name: type_name.unwrap(),
-                is_array: false,
-                generics: None,
-            }
+            ast::Type::new(
+                type_name.clone().unwrap(),
+                ast::Lit::from_string(type_name.clone().unwrap()),
+                None,
+            )
         }
     }
 
@@ -474,6 +474,7 @@ where
 
         Ok(ast::Stmt::Let {
             name,
+            type_: ast::Type::new("unknown".to_string(), ast::Lit::Unknown, None),
             statement: Rc::new(Arc::new(value.unwrap())),
         })
     }
@@ -611,6 +612,7 @@ where
 
         Ok(ast::Stmt::Assignment {
             name,
+            type_: ast::Type::new("unknown".to_string(), ast::Lit::Unknown, None),
             value: Rc::new(Arc::new(value?)),
         })
     }
@@ -670,22 +672,14 @@ where
                 self.consume(T![,]);
                 Ok(ast::Stmt::Identifier {
                     name,
-                    type_: ast::Type {
-                        name: "unknown".to_string(),
-                        is_array: false,
-                        generics: None,
-                    },
+                    type_: ast::Type::new("unknown".to_string(), ast::Lit::Unknown, None),
                 })
             }
             T![;] => {
                 // We don't consyme the semicolon here, because it's consumed in the caller function
                 Ok(ast::Stmt::Identifier {
                     name,
-                    type_: ast::Type {
-                        name: "unknown".to_string(),
-                        is_array: false,
-                        generics: None,
-                    },
+                    type_: ast::Type::new("unknown".to_string(), ast::Lit::Unknown, None),
                 })
             }
             T!['('] => {
@@ -1627,6 +1621,7 @@ mod tests {
             expr,
             ast::Stmt::Let {
                 name: "k".to_string(),
+                type_: ast::Type::new("unknown".to_string(), ast::Lit::Unknown, None),
                 statement: Rc::new(Arc::new(ast::Stmt::InfixOp {
                     op: TokenKind::Plus,
                     lhs: Rc::new(Arc::new(ast::Stmt::InfixOp {
@@ -1635,11 +1630,7 @@ mod tests {
                             op: TokenKind::Star,
                             lhs: Rc::new(Arc::new(ast::Stmt::Identifier {
                                 name: "x".to_string(),
-                                type_: ast::Type {
-                                    name: "unknown".to_string(),
-                                    is_array: false,
-                                    generics: None,
-                                },
+                                type_: ast::Type::new("unknown".to_string(), ast::Lit::Unknown, None),
                             })),
                             rhs: Rc::new(Arc::new(ast::Stmt::Literal(ast::Lit::Int(4))))
                         })),
@@ -1657,11 +1648,7 @@ mod tests {
                     })),
                     rhs: Rc::new(Arc::new(ast::Stmt::Identifier {
                         name: "z".to_string(),
-                        type_: ast::Type {
-                            name: "unknown".to_string(),
-                            is_array: false,
-                            generics: None,
-                        },
+                        type_: ast::Type::new("unknown".to_string(), ast::Lit::Unknown, None),
                     }))
                 }))
             }
@@ -1711,6 +1698,7 @@ mod tests {
             stmt,
             ast::Stmt::Enum {
                 is_public: false,
+                type_: ast::Type::new("Foo".to_string(), ast::Lit::Enum("Foo".to_string()), None),
                 name: "Foo".to_string(),
                 members: vec!["Bar".to_string(), "Baz".to_string(), "Qux".to_string()]
             }
@@ -1739,45 +1727,33 @@ mod tests {
             stmt,
             ast::Stmt::Interface {
                 name: "Foo".to_string(),
-                type_: Some(ast::Type {
-                    name: "Foo".to_string(),
-                    is_array: false,
-                    generics: None,
-                }),
+                type_: ast::Type::new("Foo".to_string(), ast::Lit::Interface("Foo".to_string()), None),
                 methods: vec![
                     Rc::new(Arc::new(ast::Stmt::InterfaceFunctionSignature {
                         name: "bar".to_string(),
                         generics: None,
                         parameters: Some(vec![(
                             "x".to_string(),
-                            ast::Type {
-                                name: "int".to_string(),
-                                is_array: false,
-                                generics: None
-                            }
+                            ast::Type::new("int".to_string(), ast::Lit::from_string("int".to_string()), None)
                         )]),
-                        return_type: Some(vec![ast::Type {
-                            name: "int".to_string(),
-                            is_array: false,
-                            generics: None
-                        }])
+                        return_type: Some(vec![ast::Type::new(
+                            "int".to_string(),
+                            ast::Lit::from_string("int".to_string()),
+                            None
+                        )])
                     })),
                     Rc::new(Arc::new(ast::Stmt::InterfaceFunctionSignature {
                         name: "baz".to_string(),
                         generics: None,
                         parameters: Some(vec![(
                             "y".to_string(),
-                            ast::Type {
-                                name: "string".to_string(),
-                                is_array: false,
-                                generics: None
-                            }
+                            ast::Type::new("string".to_string(), ast::Lit::from_string("string".to_string()), None)
                         )]),
-                        return_type: Some(vec![ast::Type {
-                            name: "string".to_string(),
-                            is_array: false,
-                            generics: None
-                        }])
+                        return_type: Some(vec![ast::Type::new(
+                            "string".to_string(),
+                            ast::Lit::from_string("string".to_string()),
+                            None
+                        )])
                     }))
                 ]
             }

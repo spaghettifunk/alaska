@@ -20,20 +20,23 @@ pub enum Symbol {
     Struct {
         is_public: bool,
         name: String,
+        type_: Type, // Struct type
         table: Rc<RefCell<SymbolTable>>,
     }, // Struct with its own symbol table
     StructMember {
         is_public: bool,
         name: String,
-        type_: String, // Struct member type
+        type_: Type, // Struct member type
     },
     Impl {
         name: String,
+        type_: Type,
         interfaces: Option<Vec<Type>>,   // Vector of interface names
         table: Rc<RefCell<SymbolTable>>, // Impl with its own symbol table
     },
     Interface {
         name: String,
+        type_: Type,
         table: Rc<RefCell<SymbolTable>>, // Interface with its own symbol table
     },
     InterfaceMethod {
@@ -45,22 +48,20 @@ pub enum Symbol {
     Enum {
         is_public: bool,
         name: String,
+        type_: Type,
         table: Rc<RefCell<SymbolTable>>,
     },
     EnumMember {
         name: String,
+        type_: Type,
         value: String, // Enum member value as a String
     },
     Function {
         is_public: bool,
         name: String,
-        parameters: Option<Vec<(String, Type)>>, // Vector of (parameter name, parameter type)
-        return_type: Option<Vec<Type>>,          // Optional vector of return types
-        body: Rc<RefCell<SymbolTable>>,          // Function body with its own symbol table
-    },
-    FunctionParameter {
-        name: String,
-        type_: Type, // Function parameter type
+        parameters: Option<Vec<Symbol>>, // Vector of Symbol::FunctionParameter
+        return_type: Option<Vec<Type>>,  // Optional vector of return types
+        body: Rc<RefCell<SymbolTable>>,  // Function body with its own symbol table
     },
     FunctionCall {
         name: String,
@@ -141,8 +142,8 @@ impl fmt::Display for Symbol {
             Symbol::Enum { is_public, name, .. } => {
                 write!(f, "Enum(name: {}, is_public: {})\n", name, is_public)
             }
-            Symbol::EnumMember { name, value } => {
-                write!(f, "EnumMember(name: {}, value: {})", name, value)
+            Symbol::EnumMember { name, value, type_ } => {
+                write!(f, "EnumMember(name: {}, value: {}, type: {})", name, value, type_)
             }
             Symbol::Function {
                 is_public,
@@ -153,8 +154,8 @@ impl fmt::Display for Symbol {
             } => {
                 write!(f, "Function(name: {}, is_public: {}, parameters: [", name, is_public)?;
                 if let Some(parameters) = parameters {
-                    for (param_name, param_type) in parameters.iter() {
-                        write!(f, "({}, {}), ", param_name, param_type)?;
+                    for symbol in parameters.iter() {
+                        write!(f, "({}), ", symbol)?;
                     }
                 }
                 write!(f, "], return_type: [")?;
@@ -193,9 +194,6 @@ impl fmt::Display for Symbol {
             }
             Symbol::Block(..) => {
                 write!(f, "Block\n")
-            }
-            Symbol::FunctionParameter { name, type_ } => {
-                write!(f, "FunctionParameter(name: {}, type: {})", name, type_)
             }
             Symbol::FunctionCall { name, arguments } => {
                 write!(f, "FunctionCall(name: {}, arguments: [", name)?;

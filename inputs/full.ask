@@ -1,19 +1,28 @@
-// this works
+// when you see // or /**/ it means that it's a comment on single or multiline respectively
+
+// `package` means that this code belongs to a package called main
 package main;
 
-// this works
+// `use` means that the code it is importing a library called `fmt`
 use fmt;
 use test;
 
-// this works
-interface Writer<T, Foo<E>> {    
+// the `interface` called `Writer` defines set of functions' signatures 
+// when you see `< >` it means that these are generics types
+interface Writer<T, Foo<E>> {
+    // `simple` is the name of the function    
     simple();
+    // this function contains two paraments `src` of type `string` and `dst` of type `string`
+    // the `advance` function returns (indicated with `->`) a type `error`
     advance(src: string, dst: string) -> error;
+    // this function uses `generics` since it has `< >` after the name of the function
     with_generics<T, Foo<E>>(i: int, is_fancy: bool) -> error;
+    // this function returns a tuple containing two types
     with_return_tuple() -> (int, error);
 }
 
-// this works
+// `struct` define a set of fileds with a `name` and a `type`
+// it can also accept `generics` since they are enclosed between `< >`
 struct Banana<Bar<T, U>, Z, Boo<U, X>> {
     Name string
     Noop int
@@ -24,20 +33,32 @@ struct Banana<Bar<T, U>, Z, Boo<U, X>> {
     Goooooo Boo<U,X>
 }
 
-// TODO: in the evaluation pass, if a member is `pub` but the struct is not, return an error
+// this is again a `struct` but it is `public` since it uses the keyword `pub`
 pub struct Test {
-    Name string // fields always private
-    pub Age int // this is a publicly accessible field
+    // fields always private
+    Name string
+    // this is a publicly accessible field because it has `pub` in front
+    pub Age int     
 }
 
+// `impl` is used to define methods belonging to a `struct`. If you want to also 
+// add `interfaces` to the `impl`, you can use `with` followed by the name of the interfaces
+// you need. If there are more than one interface, you need to enclose them between `()` and 
+// separated by a `,`
 impl Banana<Bar<T, U>, Z, Boo<U, X>> with (Writer<T, Foo<E>>, Test) {
+    // `pub` defines a `public function and the word `fn` defines the initial definition of a
+    // function belonging to this `impl`
     pub fn new(name: string, noop: int) -> Banana<Bar<T, U>, Z, Boo<U, X>> {
+        // this below is the way to initiate a `struct`
         return Banana{Name: name, Noop: noop};
     }
 
     fn private_method() -> int {
+        // `let` means that there will be an initiation of a variable
+        // that will assign what is on the right hand side of the symbol `=` 
         let k = 20 - 45;
         let w = k * 8 / 3;
+        // function call
         fmt.Println("result %d", w);
         return -10;
     }
@@ -48,9 +69,8 @@ impl Banana<Bar<T, U>, Z, Boo<U, X>> with (Writer<T, Foo<E>>, Test) {
     }
 }
 
-// internally we transform them into an integer sequence
-// but the user can use them as simple labels. Good to use them in the
-// `match` statement
+// this is a public `enum` definition with name `Fancy`
+// within brackets are listed the members belonging to this enum
 pub enum Fancy {
     Value,
     Another,
@@ -63,10 +83,13 @@ enum FancyEnum {
     MegaTest
 }
 
-// these are immutable values!
+// `const` defines immutable values and they must always contain a `type`
+// the type is defined after the `:` whereas the value is on the right hand side of the
+// `=` symbol
 const hello: string = "test";
 const test: float = 3.14;
 
+// `const` can be grouped within `()`
 const (
     first: string = "hello world";
     second: int = 42;
@@ -79,10 +102,11 @@ const (
 )
 
 
-fn main() -> int {
-    //let a; // this is an error - you need to tell the type
-    //let a: int; // TODO: this is valid but we are not able to parse it yet
-    let f = Test{name: "Davide", age: 35 };
+fn main() -> int {  
+    // in a `let` form you can specify the type so that the compiler
+    // doesn't have to infer it  
+    let a: int = 0; 
+    let f = Test{name: "Davide", age: 35 }; 
     let b = Banana.new("Davide", 35);
     let t = fmt.random.lekker.Println("hello");
     return 0;
@@ -103,12 +127,14 @@ fn copyFile(src: string, dst: string) -> error {
     defer source.Close();
 
     let destination_magic = os.Create(dst);
+    // `defer` is a keyword used to say that the function will be called 
+    // after all the statements in the function's body are executed
     defer destination_magic.Close();
 
     let text = "hello world";
 
-    // ignore number of bytes copied
     let cp = io.Copy(destination_magic, source);
 
+    // `nil` is a special type that means `empty`
     return nil;
 }
