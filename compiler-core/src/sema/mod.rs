@@ -84,54 +84,53 @@ impl SemanticAnalyzer {
                 value,
             } => {
                 let constant_symbol = format!("const.{}", name);
-
-                let symbol_table_clone = Rc::clone(&symbol_table);
-
-                let borrowed_symbol_table = symbol_table_clone.borrow();
-                let symbol = borrowed_symbol_table.lookup_local_scope(&constant_symbol);
-                match symbol {
-                    Some(_) => Err(format!("error: constant `{}` already declared", name))?,
-                    None => {
-                        let symbol_table_clone = Rc::clone(&symbol_table);
-                        symbol_table_clone.as_ref().borrow_mut().add_symbol(
-                            constant_symbol.clone(),
-                            Symbol::Constant {
-                                name: name.clone(),
-                                type_: type_.clone(),
-                                value: String::new(), // TODO: how do I save the value???
-                            },
-                        );
-                        Ok(())
-                    }
+                let symbol_exists = {
+                    let borrowed_symbol_table = symbol_table.borrow();
+                    borrowed_symbol_table.lookup_local_scope(&constant_symbol).is_some()
+                };
+                if symbol_exists {
+                    Err(format!("error: constant `{}` already declared", name))?
+                } else {
+                    // At this point, the immutable borrow has ended
+                    symbol_table.as_ref().borrow_mut().add_symbol(
+                        constant_symbol.clone(),
+                        Symbol::Constant {
+                            name: name.clone(),
+                            type_: type_.clone(),
+                            value: String::new(), // TODO: how do I save the value???
+                        },
+                    );
+                    Ok(())
                 }
             }
             Stmt::Interface { name, type_, methods } => {
                 let interface_symbol = format!("interface.{}", name);
+                // Check if the interface symbol already exists
+                let symbol_exists = {
+                    let borrowed_symbol_table = symbol_table.borrow();
+                    borrowed_symbol_table.lookup_local_scope(&interface_symbol).is_some()
+                };
+                if symbol_exists {
+                    Err(format!("error: interface `{}` already declared", name))
+                } else {
+                    // At this point, the immutable borrow has ended
+                    let sy = Rc::clone(&symbol_table);
+                    let mut interface_table = Rc::new(RefCell::new(SymbolTable::new(name.clone(), Some(sy))));
 
-                let symbol_table_clone = Rc::clone(&symbol_table);
-
-                let borrowed_symbol_table = symbol_table_clone.borrow();
-                let symbol = borrowed_symbol_table.lookup_local_scope(&interface_symbol);
-                match symbol {
-                    Some(_) => Err(format!("error: interface `{}` already declared", name)),
-                    None => {
-                        let sy = Rc::clone(&symbol_table);
-                        let mut interface_table = Rc::new(RefCell::new(SymbolTable::new(name.clone(), Some(sy))));
-
-                        for method in methods {
-                            self.process_stmt(&mut interface_table, *method)?;
-                        }
-
-                        symbol_table.as_ref().borrow_mut().add_symbol(
-                            name.clone(),
-                            Symbol::Interface {
-                                name: name.clone(),
-                                type_: type_.clone(),
-                                table: interface_table,
-                            },
-                        );
-                        Ok(())
+                    for method in methods {
+                        self.process_stmt(&mut interface_table, *method)?;
                     }
+
+                    // Now we can safely take a mutable borrow
+                    symbol_table.as_ref().borrow_mut().add_symbol(
+                        name.clone(),
+                        Symbol::Interface {
+                            name: name.clone(),
+                            type_: type_.clone(),
+                            table: interface_table,
+                        },
+                    );
+                    Ok(())
                 }
             }
             Stmt::InterfaceFunctionSignature {
@@ -141,23 +140,22 @@ impl SemanticAnalyzer {
                 return_type,
             } => {
                 let borrowed_symbol_table = symbol_table.borrow();
-                let symbol = borrowed_symbol_table.lookup_local_scope(&name);
-                match symbol {
-                    Some(_) => {
-                        Err(format!("error: method `{}` in interface already declared", name))?;
-                    }
-                    None => {
-                        symbol_table.as_ref().borrow_mut().add_symbol(
-                            name.clone(),
-                            Symbol::InterfaceMethod {
-                                name: name.clone(),
-                                parameters: parameters.clone(),
-                                return_type: return_type.clone(),
-                            },
-                        );
-                    }
+                let symbol_exists = borrowed_symbol_table.lookup_local_scope(&name).is_some();
+                drop(borrowed_symbol_table); // Explicitly drop the immutable borrow
+
+                if symbol_exists {
+                    Err(format!("error: method `{}` in interface already declared", name))?
+                } else {
+                    symbol_table.as_ref().borrow_mut().add_symbol(
+                        name.clone(),
+                        Symbol::InterfaceMethod {
+                            name: name.clone(),
+                            parameters: parameters.clone(),
+                            return_type: return_type.clone(),
+                        },
+                    );
+                    Ok(())
                 }
-                Ok(())
             }
             Stmt::Let {
                 name,
@@ -199,14 +197,16 @@ impl SemanticAnalyzer {
             Stmt::WhileStmt { condition, body } => self.process_while_stmt(symbol_table, condition, body),
             Stmt::Block { stmts } => {
                 let block_id = format!("block.{}", Uuid::new_v4().to_string());
-
-                let sy = Rc::clone(&symbol_table);
-                let mut block_symbol_table = Rc::new(RefCell::new(SymbolTable::new(block_id.clone(), Some(sy))));
-
+                // Create a new block symbol table with the parent set to the current symbol table
+                let mut block_symbol_table = {
+                    let sy = Rc::clone(&symbol_table);
+                    Rc::new(RefCell::new(SymbolTable::new(block_id.clone(), Some(sy))))
+                };
+                // Process each statement within the new block scope
                 for stmt in stmts {
                     self.process_stmt(&mut block_symbol_table, *stmt)?;
                 }
-
+                // Now, we can safely borrow the parent symbol table mutably and add the new block symbol table
                 symbol_table
                     .as_ref()
                     .borrow_mut()
@@ -268,29 +268,36 @@ impl SemanticAnalyzer {
                 methods,
             } => {
                 let impl_symbol = format!("impl.{}", name);
-                let borrowed_symbol_table = symbol_table.borrow();
-                let symbol = borrowed_symbol_table.lookup_local_scope(&impl_symbol);
-                match symbol {
-                    Some(_) => Err(format!("error: impl `{}` already declared", name))?,
-                    None => {
-                        let sy = Rc::clone(&symbol_table);
-                        let mut impl_methods_table = Rc::new(RefCell::new(SymbolTable::new(name.clone(), Some(sy))));
 
-                        for method in methods {
-                            self.process_stmt(&mut impl_methods_table, *method)?;
-                        }
+                // Check if the impl symbol already exists
+                let symbol_exists = {
+                    let borrowed_symbol_table = symbol_table.borrow();
+                    borrowed_symbol_table.lookup_local_scope(&impl_symbol).is_some()
+                };
 
-                        symbol_table.as_ref().borrow_mut().add_symbol(
-                            impl_symbol.clone(),
-                            Symbol::Impl {
-                                name: name.clone(),
-                                type_: ast::Type::new(name.clone(), ast::Expr::Struct(name.clone()), None),
-                                interfaces: interfaces.clone(),
-                                table: impl_methods_table,
-                            },
-                        );
-                        Ok(())
+                if symbol_exists {
+                    Err(format!("error: impl `{}` already declared", name))?
+                } else {
+                    // At this point, the immutable borrow has ended
+                    let sy = Rc::clone(&symbol_table);
+                    let mut impl_methods_table = Rc::new(RefCell::new(SymbolTable::new(name.clone(), Some(sy))));
+
+                    for method in methods {
+                        self.process_stmt(&mut impl_methods_table, *method)?;
                     }
+
+                    // Now we can safely take a mutable borrow
+                    symbol_table.as_ref().borrow_mut().add_symbol(
+                        impl_symbol.clone(),
+                        Symbol::Impl {
+                            name: name.clone(),
+                            type_: ast::Type::new(name.clone(), ast::Expr::Struct(name.clone()), None),
+                            interfaces: interfaces.clone(),
+                            table: impl_methods_table,
+                        },
+                    );
+
+                    Ok(())
                 }
             }
             Stmt::ConstantGroup { constants } => {
@@ -302,19 +309,21 @@ impl SemanticAnalyzer {
             Stmt::UseDeclaration(name) => {
                 let use_symbol = format!("use.{}", name);
 
-                let symbol_table_clone = Rc::clone(&symbol_table);
+                // Check if the use symbol already exists
+                let symbol_exists = {
+                    let borrowed_symbol_table = symbol_table.borrow();
+                    borrowed_symbol_table.lookup_local_scope(&use_symbol).is_some()
+                };
 
-                let borrowed_symbol_table = symbol_table_clone.borrow();
-                let symbol = borrowed_symbol_table.lookup_local_scope(&use_symbol);
-                match symbol {
-                    Some(_) => Err(format!("error: use `{}` already declared", name))?,
-                    None => {
-                        symbol_table
-                            .as_ref()
-                            .borrow_mut()
-                            .add_symbol(use_symbol.clone(), Symbol::Use(name.clone()));
-                        Ok(())
-                    }
+                if symbol_exists {
+                    Err(format!("error: use `{}` already declared", name))?
+                } else {
+                    // At this point, the immutable borrow has ended, so we can take a mutable borrow
+                    symbol_table
+                        .as_ref()
+                        .borrow_mut()
+                        .add_symbol(use_symbol.clone(), Symbol::Use(name.clone()));
+                    Ok(())
                 }
             }
             _ => Ok(()),
@@ -394,29 +403,32 @@ impl SemanticAnalyzer {
         type_: ast::Type,
     ) -> Result<(), String> {
         let struct_symbol = format!("struct.{}", name);
-        let borrowed_symbol_table = symbol_table.borrow();
-        let symbol = borrowed_symbol_table.lookup_local_scope(&struct_symbol);
-        match symbol {
-            Some(_) => Err(format!("error: struct `{}` already declared", name)),
-            None => {
-                let sy = Rc::clone(&symbol_table);
-                let mut struct_members_table = Rc::new(RefCell::new(SymbolTable::new(name.clone(), Some(sy))));
-
-                for member in members {
-                    self.process_stmt(&mut struct_members_table, *member)?;
-                }
-
-                symbol_table.as_ref().borrow_mut().add_symbol(
-                    struct_symbol.clone(),
-                    Symbol::Struct {
-                        is_public,
-                        type_: type_.clone(),
-                        name: name.clone(),
-                        table: struct_members_table,
-                    },
-                );
-                Ok(())
+        // Check if the struct symbol already exists
+        let symbol_exists = {
+            let borrowed_symbol_table = symbol_table.borrow();
+            borrowed_symbol_table.lookup_local_scope(&struct_symbol).is_some()
+        };
+        if symbol_exists {
+            Err(format!("error: struct `{}` already declared", name))
+        } else {
+            // Create a new symbol table for struct members with the current symbol_table as parent
+            let sy = Rc::clone(&symbol_table);
+            let mut struct_members_table = Rc::new(RefCell::new(SymbolTable::new(name.clone(), Some(sy))));
+            // Process each struct member
+            for member in members {
+                self.process_stmt(&mut struct_members_table, *member)?;
             }
+            // Add the struct symbol to the parent symbol table
+            symbol_table.as_ref().borrow_mut().add_symbol(
+                struct_symbol.clone(),
+                Symbol::Struct {
+                    is_public,
+                    type_: type_.clone(),
+                    name: name.clone(),
+                    table: struct_members_table,
+                },
+            );
+            Ok(())
         }
     }
 
@@ -482,29 +494,35 @@ impl SemanticAnalyzer {
         self.collect_expr_symbols(symbol_table, *condition)?;
 
         let while_id = format!("while.{}", Uuid::new_v4().to_string());
-        let borrowed_symbol_table = symbol_table.borrow();
-        let symbol = borrowed_symbol_table.lookup_local_scope(&while_id);
 
-        match symbol {
-            Some(_) => Err(format!("error: symbol `{}` already declared", while_id)),
-            None => {
-                let sy = Rc::clone(&symbol_table);
-                let mut while_symbol_table = Rc::new(RefCell::new(SymbolTable::new(while_id.clone(), Some(sy))));
+        // Check if the while symbol already exists
+        let symbol_exists = {
+            let borrowed_symbol_table = symbol_table.borrow();
+            borrowed_symbol_table.lookup_local_scope(&while_id).is_some()
+        };
 
-                for stmt in body {
-                    self.process_stmt(&mut while_symbol_table, *stmt)?;
-                }
+        if symbol_exists {
+            Err(format!("error: symbol `{}` already declared", while_id))
+        } else {
+            // Create a new symbol table for the while loop with the current symbol_table as parent
+            let sy = Rc::clone(&symbol_table);
+            let mut while_symbol_table = Rc::new(RefCell::new(SymbolTable::new(while_id.clone(), Some(sy))));
 
-                symbol_table.as_ref().borrow_mut().add_symbol(
-                    while_id.clone(),
-                    Symbol::WhileLoop {
-                        condition: String::new(), // TODO: is this correct?
-                        body: while_symbol_table,
-                    },
-                );
-
-                Ok(())
+            // Process each statement in the while loop body
+            for stmt in body {
+                self.process_stmt(&mut while_symbol_table, *stmt)?;
             }
+
+            // Add the while symbol to the parent symbol table
+            symbol_table.as_ref().borrow_mut().add_symbol(
+                while_id.clone(),
+                Symbol::WhileLoop {
+                    condition: String::new(), // TODO: Adjust this as per your logic
+                    body: while_symbol_table,
+                },
+            );
+
+            Ok(())
         }
     }
 
@@ -521,9 +539,11 @@ impl SemanticAnalyzer {
 
         let range_id = format!("range.{}", Uuid::new_v4().to_string());
 
+        // Create a new symbol table for the range loop with the current symbol_table as parent
         let sy = Rc::clone(&symbol_table);
         let mut range_symbol_table = Rc::new(RefCell::new(SymbolTable::new(range_id.clone(), Some(sy))));
 
+        // Add the iterator symbol to the range symbol table
         range_symbol_table.as_ref().borrow_mut().add_symbol(
             iterator.clone(),
             Symbol::Identifier {
@@ -533,15 +553,17 @@ impl SemanticAnalyzer {
             },
         );
 
+        // Process each statement in the range loop body
         for stmt in body {
             self.process_stmt(&mut range_symbol_table, *stmt)?;
         }
 
+        // Add the range symbol to the parent symbol table
         symbol_table.as_ref().borrow_mut().add_symbol(
             range_id.clone(),
             Symbol::RangeLoop {
                 iterator,
-                iterable: String::new(),
+                iterable: String::new(), // TODO: Adjust this as per your logic
                 body: range_symbol_table,
             },
         );
@@ -559,22 +581,25 @@ impl SemanticAnalyzer {
     ) -> Result<(), String> {
         let enum_symbol = format!("enum.{}", name);
 
-        let symbol_table_clone = Rc::clone(&symbol_table);
-
-        let borrowed_symbol_table = symbol_table_clone.borrow();
+        // Borrow the symbol table immutably to check if the enum symbol already exists
+        let borrowed_symbol_table = symbol_table.borrow();
         let symbol = borrowed_symbol_table.lookup_local_scope(&enum_symbol);
 
         match symbol {
             Some(_) => Err(format!("error: enum `{}` already declared", name))?,
             None => {
+                // Create a new symbol table for the enum members with the current symbol_table as parent
                 let sy = Rc::clone(&symbol_table);
                 let enum_member_symbol_table = Rc::new(RefCell::new(SymbolTable::new(name.clone(), Some(sy))));
 
+                // Add each enum member to the enum member symbol table
                 for (idx, member) in members.iter().enumerate() {
+                    // Check if the enum member is already declared in the enum member symbol table
                     if enum_member_symbol_table.as_ref().borrow_mut().lookup(&member).is_some() {
                         Err(format!("error: enum member `{}` already declared", member))?;
                     }
 
+                    // Add the enum member to the enum member symbol table
                     enum_member_symbol_table.as_ref().borrow_mut().add_symbol(
                         member.clone(),
                         Symbol::EnumMember {
@@ -585,6 +610,7 @@ impl SemanticAnalyzer {
                     );
                 }
 
+                // Add the enum symbol to the parent symbol table
                 symbol_table.as_ref().borrow_mut().add_symbol(
                     enum_symbol.clone(),
                     Symbol::Enum {
@@ -594,6 +620,7 @@ impl SemanticAnalyzer {
                         table: enum_member_symbol_table,
                     },
                 );
+
                 Ok(())
             }
         }
@@ -631,14 +658,20 @@ impl SemanticAnalyzer {
             }
             Expr::FunctionCall { name, args } => {
                 let fn_call_symbol = format!("fn.{}", name);
-                let symbol = symbol_table.as_ref().borrow_mut().lookup(&fn_call_symbol);
+
+                // Borrow symbol_table to check if the function call symbol already exists
+                let symbol_table_borrowed = symbol_table.borrow();
+                let symbol = symbol_table_borrowed.lookup(&fn_call_symbol);
+
                 match symbol {
                     Some(_) => {
+                        // If symbol exists, collect expression symbols for each argument
                         for arg in args {
                             self.collect_expr_symbols(symbol_table, *arg.clone())?;
                         }
                     }
                     None => {
+                        // If symbol does not exist, add it to forward_references_symbol_table
                         self.forward_references_symbol_table.as_ref().borrow_mut().add_symbol(
                             fn_call_symbol.clone(),
                             Symbol::FunctionCall {
@@ -648,6 +681,7 @@ impl SemanticAnalyzer {
                         );
                     }
                 }
+
                 Ok(())
             }
             Expr::ArrayInitialization { elements } => {
@@ -658,23 +692,40 @@ impl SemanticAnalyzer {
             }
             Expr::ArrayAccess { name, index } => {
                 let array_symbol = format!("array.{}", name);
+
+                // Borrow symbol_table immutably to check if the array symbol exists
                 let borrowed_symbol_table = symbol_table.borrow();
                 let symbol = borrowed_symbol_table.lookup_local_scope(&array_symbol);
+
                 match symbol {
-                    Some(_) => self.collect_expr_symbols(symbol_table, *index),
-                    None => Err(format!(
-                        "error: identifier `{}`for array access not declared",
-                        array_symbol
-                    )),
+                    Some(_) => {
+                        // If symbol exists, collect expression symbols for the index
+                        self.collect_expr_symbols(symbol_table, *index)
+                    }
+                    None => {
+                        // If symbol does not exist, return an error message
+                        Err(format!(
+                            "error: identifier `{}` for array access not declared",
+                            array_symbol
+                        ))
+                    }
                 }
             }
             Expr::StructAccess { name, field } => {
                 // search in the global table if the struct is declared
                 let struct_symbol = format!("struct.{}", name);
-                let symbol = symbol_table.as_ref().borrow_mut().lookup(&struct_symbol);
+                // Immutable borrow to check if the struct symbol exists
+                let borrowed_symbol_table = symbol_table.borrow();
+                let symbol = borrowed_symbol_table.lookup(&struct_symbol);
                 match symbol {
-                    Some(_) => self.collect_expr_symbols(symbol_table, *field),
-                    None => Err(format!("error: struct `{}` not declared", name)),
+                    Some(_) => {
+                        // If symbol exists, collect expression symbols for the field
+                        self.collect_expr_symbols(symbol_table, *field)
+                    }
+                    None => {
+                        // If symbol does not exist, return an error message
+                        Err(format!("error: struct `{}` not declared", name))
+                    }
                 }
             }
             Expr::PrefixOp { op, expr } => self.collect_expr_symbols(symbol_table, *expr),
@@ -685,26 +736,36 @@ impl SemanticAnalyzer {
             }
             Expr::Assignment { name, type_, value } => {
                 let variable_symbol = format!("let.{}", name);
-                let symbol = symbol_table.as_ref().borrow_mut().lookup(&variable_symbol);
+                // Immutable borrow to check if the variable symbol exists
+                let borrowed_symbol_table = symbol_table.borrow();
+                let symbol = borrowed_symbol_table.lookup(&variable_symbol);
                 match symbol {
-                    Some(_) => self.collect_expr_symbols(symbol_table, *value),
-                    None => Err(format!("error: identifier `{}` not declared", name)),
+                    Some(_) => {
+                        // If symbol exists, collect expression symbols for the value
+                        self.collect_expr_symbols(symbol_table, *value)
+                    }
+                    None => {
+                        // If symbol does not exist, return an error message
+                        Err(format!("error: identifier `{}` not declared", name))
+                    }
                 }
             }
             Expr::StructInstantiation { name, members } => {
                 // search in the global table if the struct is declared
                 let struct_symbol = format!("struct.{}", name);
-                let symbol = symbol_table.as_ref().borrow_mut().lookup(&struct_symbol);
+                // Immutable borrow to check if the struct symbol exists
+                let borrowed_symbol_table = symbol_table.borrow();
+                let symbol = borrowed_symbol_table.lookup(&struct_symbol);
                 match symbol {
                     Some(_) => {
+                        // If symbol exists, collect expression symbols for each member
                         for (_, member) in members {
                             self.collect_expr_symbols(symbol_table, *member.clone())?;
                         }
                         Ok(())
                     }
                     None => {
-                        // this is a potential instantiation of a struct where the struct definition
-                        // is not yet defined
+                        // If symbol does not exist, add it to the forward references symbol table
                         self.forward_references_symbol_table.as_ref().borrow_mut().add_symbol(
                             struct_symbol.clone(),
                             Symbol::Struct {
