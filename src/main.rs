@@ -37,11 +37,11 @@ fn main() -> Result<()> {
     }
 
     let mut sema = SemanticAnalyzer::new();
-    let result = sema.symbols_collection(ast);
+    let result = sema.symbols_collection_pass(ast);
     match result {
         Ok(_) => {
             println!("First pass (symbols collection) - completed");
-            match sema.forward_references() {
+            match sema.forward_references_pass() {
                 Ok(_) => {
                     println!("Second pass (forward references) - completed");
                     println!("");

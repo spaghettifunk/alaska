@@ -1,153 +1,262 @@
 use crate::lexer::TokenKind;
-use std::{fmt, rc::Rc, sync::Arc};
+use std::fmt;
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Stmt {
-    Literal(Lit),
-    Identifier {
-        name: String,
-        type_: Type,
-    },
-    Interface {
-        name: String,
-        type_: Type,
-        methods: Vec<Rc<Arc<Stmt>>>,
-    },
-    FunctionCall {
-        name: String,
-        args: Vec<Rc<Arc<Stmt>>>,
-    },
-    ArrayInitialization {
-        elements: Vec<Rc<Arc<Stmt>>>,
-    },
-    ArrayAccess {
-        name: String,
-        index: Rc<Arc<Stmt>>,
-    },
-    StructAccess {
-        name: String,
-        field: Rc<Arc<Stmt>>,
-    },
+pub type Identifier = String;
+pub type TypeBox = Box<Type>;
+pub type ExprBox = Box<Expr>;
+pub type StmtBox = Box<Stmt>;
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Expr {
+    Int(usize),
+    Float(f64),
+    Str(String),
+    Bool(bool),
+    Char(char),
+    Nil,
+    Struct(String),    // Struct type with the name of the struct
+    Interface(String), // Interface type with the name of the interface
+    Enum(String),      // Enum type with the name of the enum
+    Variable(Identifier),
     PrefixOp {
         op: TokenKind,
-        expr: Rc<Arc<Stmt>>,
+        expr: ExprBox,
     },
-    InfixOp {
+    BinaryOp {
         op: TokenKind,
-        lhs: Rc<Arc<Stmt>>,
-        rhs: Rc<Arc<Stmt>>,
+        lhs: ExprBox,
+        rhs: ExprBox,
     },
     PostfixOp {
         op: TokenKind,
-        expr: Rc<Arc<Stmt>>,
-    },
-    Comment(String),
-    BlockComment(String),
-    Defer {
-        stmt: Rc<Arc<Stmt>>,
-    },
-    Let {
-        name: String,
-        type_: Type,
-        statement: Rc<Arc<Stmt>>,
+        expr: ExprBox,
     },
     Assignment {
         name: String,
-        type_: Type,
-        value: Rc<Arc<Stmt>>,
+        type_: TypeBox,
+        value: ExprBox,
     },
-    IfStmt {
-        condition: Rc<Arc<Stmt>>,
-        body: Vec<Rc<Arc<Stmt>>>,
-        else_stmt: Option<Rc<Arc<Stmt>>>,
-    },
-    RangeStmt {
-        iterator: String,
-        range: Rc<Arc<Stmt>>,
-        body: Vec<Rc<Arc<Stmt>>>,
-    },
-    WhileStmt {
-        condition: Rc<Arc<Stmt>>,
-        body: Vec<Rc<Arc<Stmt>>>,
-    },
-    MatchStmt {
-        value: Rc<Arc<Stmt>>,
-        arms: Vec<(Rc<Arc<Stmt>>, Vec<Rc<Arc<Stmt>>>)>,
-    },
-    Block {
-        stmts: Vec<Rc<Arc<Stmt>>>,
-    },
-    Return {
-        value: Vec<Rc<Arc<Stmt>>>,
-    },
-    StructMember {
-        is_public: bool,
+    FunctionCall {
         name: String,
-        type_: Type,
+        args: Vec<ExprBox>,
     },
-    Enum {
-        is_public: bool,
-        name: String,
-        type_: Type,
-        members: Vec<String>,
+    ArrayInitialization {
+        elements: Vec<ExprBox>,
     },
-    StructDeclaration {
-        is_public: bool,
+    ArrayAccess {
         name: String,
-        type_: Type,
-        members: Vec<Rc<Arc<Stmt>>>,
+        index: ExprBox,
+    },
+    StructAccess {
+        name: String,
+        field: ExprBox,
     },
     StructInstantiation {
         name: String,
-        members: Vec<(String, Rc<Arc<Stmt>>)>,
+        members: Vec<(String, ExprBox)>,
+    },
+    Comment(String),
+    BlockComment(String),
+}
+
+impl Expr {
+    pub fn type_to_string(&self) -> String {
+        match self {
+            Expr::Int(i) => i.to_string(),
+            Expr::Float(fl) => fl.to_string(),
+            Expr::Str(s) => s.clone(),
+            Expr::Bool(b) => b.to_string(),
+            Expr::Char(c) => c.to_string(),
+            Expr::Nil => "nil".to_string(),
+            Expr::Struct(s) => format!("struct {}", s),
+            Expr::Interface(i) => format!("interface {}", i),
+            Expr::Enum(e) => format!("enum {}", e),
+            _ => "unknown".to_string(),
+        }
+    }
+
+    pub fn from_string_to_type(s: String) -> Expr {
+        if let Ok(i) = s.parse::<usize>() {
+            return Expr::Int(i);
+        }
+        if let Ok(fl) = s.parse::<f64>() {
+            return Expr::Float(fl);
+        }
+        if s == "nil" {
+            return Expr::Nil;
+        }
+        if s == "true" {
+            return Expr::Bool(true);
+        }
+        if s == "false" {
+            return Expr::Bool(false);
+        }
+        if s.starts_with('\'') && s.ends_with('\'') {
+            return Expr::Char(s.chars().nth(1).unwrap());
+        }
+        if s.starts_with('"') && s.ends_with('"') {
+            return Expr::Str(s[1..s.len() - 1].to_string());
+        }
+        Expr::Nil
+    }
+}
+
+impl fmt::Display for Expr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Expr::Int(i) => write!(f, "{}", i),
+            Expr::Float(fl) => write!(f, "{}", fl),
+            Expr::Str(s) => write!(f, r#""{}""#, s),
+            Expr::Bool(b) => write!(f, "{}", b),
+            Expr::Char(c) => write!(f, "'{}'", c),
+            Expr::Nil => write!(f, "nil"),
+            Expr::Struct(s) => write!(f, "struct {}", s),
+            Expr::Interface(i) => write!(f, "interface {}", i),
+            Expr::Enum(e) => write!(f, "enum {}", e),
+            Expr::PrefixOp { op, expr } => write!(f, "({} {})", op, expr),
+            Expr::BinaryOp { op, lhs, rhs } => write!(f, "({} {} {})", lhs, op, rhs),
+            Expr::PostfixOp { op, expr } => write!(f, "({} {})", expr, op),
+            Expr::Assignment { name, type_, value } => write!(f, "{}: {} = {}", name, type_, value),
+            Expr::FunctionCall { name, args } => {
+                write!(f, "{}(", name)?;
+                for arg in args {
+                    write!(f, "{},", arg)?;
+                }
+                write!(f, ")")
+            }
+            Expr::ArrayInitialization { elements } => {
+                write!(f, "[")?;
+                for element in elements {
+                    write!(f, "{},", element)?;
+                }
+                write!(f, "]")
+            }
+            Expr::ArrayAccess { name: array, index } => write!(f, "{}[{}]", array, index),
+            Expr::StructAccess {
+                name: struct_name,
+                field,
+            } => write!(f, "{}.{}", struct_name, field),
+            Expr::StructInstantiation { name, members } => {
+                write!(f, "{}", name)?;
+                write!(f, "{{")?;
+                for (name, value) in members {
+                    write!(f, "{}: {},", name, value)?;
+                }
+                write!(f, "}}")
+            }
+            Expr::Comment(text) => write!(f, "//{}", text),
+            Expr::BlockComment(text) => write!(f, "/*{}*/", text),
+            Expr::Variable(identifier) => write!(f, "{}", identifier),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Stmt {
+    PackageDeclaration(Identifier),
+    UseDeclaration(Identifier),
+    Expression(ExprBox),
+    ConstantGroup {
+        constants: Vec<StmtBox>,
+    },
+    Constant {
+        is_public: bool,
+        name: Identifier,
+        type_: Type,
+        value: ExprBox,
+    },
+    Let {
+        name: Identifier,
+        type_: Type,
+        expr: ExprBox,
+    },
+    Interface {
+        name: Identifier,
+        type_: Type,
+        methods: Vec<StmtBox>,
+    },
+    Defer {
+        expr: ExprBox,
+    },
+    IfStmt {
+        condition: ExprBox,
+        body: Vec<StmtBox>,
+        else_stmt: Option<StmtBox>,
+    },
+    RangeStmt {
+        iterator: Identifier,
+        range: ExprBox,
+        body: Vec<StmtBox>,
+    },
+    WhileStmt {
+        condition: ExprBox,
+        body: Vec<StmtBox>,
+    },
+    Block {
+        stmts: Vec<StmtBox>,
+    },
+    Return {
+        exprs: Vec<ExprBox>,
+    },
+    Enum {
+        is_public: bool,
+        name: Identifier,
+        type_: Type,
+        members: Vec<Identifier>,
+    },
+    StructDeclaration {
+        is_public: bool,
+        name: Identifier,
+        type_: Type,
+        members: Vec<StmtBox>,
+    },
+    StructMember {
+        is_public: bool,
+        name: Identifier,
+        type_: Type,
     },
     InterfaceFunctionSignature {
-        name: String,
+        name: Identifier,
         generics: Option<Vec<Type>>,
-        parameters: Option<Vec<(String, Type)>>,
+        parameters: Option<Vec<(Identifier, Type)>>,
         return_type: Option<Vec<Type>>,
     },
     FunctionDeclaration {
         is_public: bool,
-        name: String,
+        name: Identifier,
         generics: Option<Vec<Type>>,
-        parameters: Option<Vec<(String, Type)>>,
-        body: Vec<Rc<Arc<Stmt>>>,
+        parameters: Option<Vec<(Identifier, Type)>>,
+        body: Vec<StmtBox>,
         return_type: Option<Vec<Type>>,
     },
     ImplDeclaration {
-        name: String,
+        name: Identifier,
         generics: Option<Vec<Type>>,
         interfaces: Option<Vec<Type>>,
-        methods: Vec<Rc<Arc<Stmt>>>,
-    },
-    Constant {
-        name: String,
-        type_: Type,
-        value: Rc<Arc<Stmt>>,
-    },
-    ConstantGroup {
-        constants: Vec<Rc<Arc<Stmt>>>,
-    },
-    PackageDeclaration {
-        name: String,
-    },
-    UseDeclaration {
-        name: String,
+        methods: Vec<StmtBox>,
     },
     Empty,
+}
+
+impl Stmt {
+    pub fn is_package_declaration(&self) -> (bool, String) {
+        match self {
+            Stmt::PackageDeclaration(name) => (true, name.clone()),
+            _ => (false, "".to_string()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SourceFile {
     pub name: String,
-    pub statements: Vec<Rc<Arc<Stmt>>>,
+    pub statements: Vec<StmtBox>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Type {
     name: String,
-    literal: Lit,
+    literal: Expr,
     generics: Option<Vec<Type>>,
 }
 
@@ -158,12 +267,12 @@ impl Type {
     pub fn default() -> Self {
         Type {
             name: String::new(),
-            literal: Lit::Unknown,
+            literal: Expr::Nil,
             generics: None,
         }
     }
 
-    pub fn new(name: String, literal: Lit, generics: Option<Vec<Type>>) -> Self {
+    pub fn new(name: String, literal: Expr, generics: Option<Vec<Type>>) -> Self {
         Type {
             name,
             literal,
@@ -173,62 +282,6 @@ impl Type {
 
     pub fn compare(&self, other: &Type) -> bool {
         self.name == other.name && self.literal == other.literal && self.generics == other.generics
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Lit {
-    Int(usize),
-    Float(f64),
-    Str(String),
-    Bool(bool),
-    Char(char),
-    Nil(),
-    Struct(String),    // Struct type with the name of the struct
-    Interface(String), // Interface type with the name of the interface
-    Enum(String),      // Enum type with the name of the enum
-    Unknown,
-}
-
-impl Lit {
-    pub fn to_string(&self) -> String {
-        match self {
-            Lit::Int(i) => i.to_string(),
-            Lit::Float(fl) => fl.to_string(),
-            Lit::Str(s) => s.clone(),
-            Lit::Bool(b) => b.to_string(),
-            Lit::Char(c) => c.to_string(),
-            Lit::Nil() => "nil".to_string(),
-            Lit::Struct(s) => format!("struct {}", s),
-            Lit::Interface(i) => format!("interface {}", i),
-            Lit::Enum(e) => format!("enum {}", e),
-            Lit::Unknown => "unknown".to_string(),
-        }
-    }
-
-    pub fn from_string(s: String) -> Lit {
-        if let Ok(i) = s.parse::<usize>() {
-            return Lit::Int(i);
-        }
-        if let Ok(fl) = s.parse::<f64>() {
-            return Lit::Float(fl);
-        }
-        if s == "nil" {
-            return Lit::Nil();
-        }
-        if s == "true" {
-            return Lit::Bool(true);
-        }
-        if s == "false" {
-            return Lit::Bool(false);
-        }
-        if s.starts_with('\'') && s.ends_with('\'') {
-            return Lit::Char(s.chars().nth(1).unwrap());
-        }
-        if s.starts_with('"') && s.ends_with('"') {
-            return Lit::Str(s[1..s.len() - 1].to_string());
-        }
-        Lit::Unknown
     }
 }
 
@@ -254,58 +307,14 @@ impl fmt::Display for Type {
     }
 }
 
-impl fmt::Display for Lit {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Lit::Int(i) => write!(f, "{}", i),
-            Lit::Float(fl) => write!(f, "{}", fl),
-            Lit::Str(s) => write!(f, r#""{}""#, s),
-            Lit::Bool(b) => write!(f, "{}", b),
-            Lit::Char(c) => write!(f, "'{}'", c),
-            Lit::Nil() => write!(f, "nil"),
-            Lit::Struct(s) => write!(f, "struct {}", s),
-            Lit::Interface(i) => write!(f, "interface {}", i),
-            Lit::Enum(e) => write!(f, "enum {}", e),
-            Lit::Unknown => write!(f, "unknown"),
-        }
-    }
-}
-
 impl fmt::Display for Stmt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Stmt::Literal(lit) => write!(f, "{}", lit),
-            Stmt::Identifier { name, type_ } => write!(f, "{}", name),
-            Stmt::FunctionCall { name, args } => {
-                write!(f, "{}(", name)?;
-                for arg in args {
-                    write!(f, "{},", arg)?;
-                }
-                write!(f, ")")
-            }
-            Stmt::StructAccess {
-                name: struct_name,
-                field,
-            } => write!(f, "{}.{}", struct_name, field),
-            Stmt::ArrayInitialization { elements } => {
-                write!(f, "[")?;
-                for element in elements {
-                    write!(f, "{},", element)?;
-                }
-                write!(f, "]")
-            }
-            Stmt::ArrayAccess { name: array, index } => write!(f, "{}[{}]", array, index),
-            Stmt::PrefixOp { op, expr } => write!(f, "({} {})", op, expr),
-            Stmt::InfixOp { op, lhs, rhs } => write!(f, "({} {} {})", lhs, op, rhs),
-            Stmt::PostfixOp { op, expr } => write!(f, "({} {})", expr, op),
-            Stmt::Comment(text) => write!(f, "//{}", text),
-            Stmt::BlockComment(text) => write!(f, "/*{}*/", text),
             Stmt::Let {
                 name,
                 type_,
-                statement: value,
+                expr: value,
             } => write!(f, "let {}: {} = {};", name, type_, value),
-            Stmt::Assignment { name, type_, value } => write!(f, "{}: {} = {};", name, type_, value),
             Stmt::IfStmt {
                 condition,
                 body,
@@ -335,17 +344,6 @@ impl fmt::Display for Stmt {
                 }
                 write!(f, "}}")
             }
-            Stmt::MatchStmt { value, arms } => {
-                write!(f, "match {} {{\n", value)?;
-                for (pattern, stmts) in arms {
-                    write!(f, "{} => {{\n", pattern)?;
-                    for stmt in stmts {
-                        write!(f, "{}\n", stmt)?;
-                    }
-                    write!(f, "}}\n")?;
-                }
-                write!(f, "}}")
-            }
             Stmt::Block { stmts } => {
                 write!(f, "{{\n")?;
                 for stmt in stmts {
@@ -353,7 +351,7 @@ impl fmt::Display for Stmt {
                 }
                 write!(f, "}}")
             }
-            Stmt::Return { value } => {
+            Stmt::Return { exprs: value } => {
                 write!(f, "return ")?;
                 for val in value {
                     write!(f, "{},", val)?;
@@ -415,9 +413,9 @@ impl fmt::Display for Stmt {
                 }
                 write!(f, "}}")
             }
-            Stmt::PackageDeclaration { name: path } => write!(f, "package {};", path),
-            Stmt::UseDeclaration { name } => write!(f, "use {};", name),
-            Stmt::Defer { stmt } => write!(f, "defer {{\n{}\n}}", stmt),
+            Stmt::PackageDeclaration(name) => write!(f, "package {};", name),
+            Stmt::UseDeclaration(name) => write!(f, "use {};", name),
+            Stmt::Defer { expr: stmt } => write!(f, "defer {{\n{}\n}}", stmt),
             Stmt::Empty => write!(f, ""),
             Stmt::Interface { name, type_, methods } => {
                 write!(f, "interface {} {{\n", name)?;
@@ -458,12 +456,6 @@ impl fmt::Display for Stmt {
                 }
                 Ok(())
             }
-            Stmt::StructMember { is_public, name, type_ } => {
-                if *is_public {
-                    write!(f, "pub ")?;
-                }
-                write!(f, "{}: {}", name, type_)
-            }
             Stmt::ImplDeclaration {
                 name,
                 generics,
@@ -496,15 +488,6 @@ impl fmt::Display for Stmt {
                 }
                 Ok(())
             }
-            Stmt::Constant { name, type_, value } => write!(f, "const {}:{} {};", name, type_, value),
-            Stmt::StructInstantiation { name, members } => {
-                write!(f, "{}", name)?;
-                write!(f, "{{")?;
-                for (name, value) in members {
-                    write!(f, "{}: {},", name, value)?;
-                }
-                write!(f, "}}")
-            }
             Stmt::Enum {
                 is_public,
                 name,
@@ -519,6 +502,26 @@ impl fmt::Display for Stmt {
                     write!(f, "{}\n", member)?;
                 }
                 write!(f, "}}")
+            }
+            Stmt::Constant {
+                is_public,
+                name,
+                type_,
+                value,
+            } => {
+                if *is_public {
+                    write!(f, "pub ")?;
+                }
+                write!(f, "const {}: {} = {};", name, type_, value)
+            }
+            Stmt::Expression(expr) => {
+                write!(f, "{}", expr)
+            }
+            Stmt::StructMember { is_public, name, type_ } => {
+                if *is_public {
+                    write!(f, "pub ")?;
+                }
+                write!(f, "{}: {}", name, type_)
             }
         }
     }
