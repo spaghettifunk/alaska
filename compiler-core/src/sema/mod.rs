@@ -327,19 +327,19 @@ impl SemanticAnalyzer {
 
         context.enter_scope(name.clone());
 
-        let mut fn_body_table = context.current_scope_mut().cloned().unwrap();
-
         let mut parameters_symbol = Vec::new();
-        if let Some(params) = parameters.clone() {
-            for (name, type_) in &params {
-                let ident_symbol = format!("let.{}", name);
-                let ident = Symbol::Identifier {
-                    name: name.clone(),
-                    type_: type_.clone(),
-                    value: String::new(), // Empty value for now
-                };
-                fn_body_table.add_symbol(ident_symbol.clone(), ident.clone());
-                parameters_symbol.push(ident);
+        if let Some(fn_body_table) = context.current_scope_mut() {
+            if let Some(params) = parameters.clone() {
+                for (name, type_) in &params {
+                    let ident_symbol = format!("let.{}", name);
+                    let ident = Symbol::Identifier {
+                        name: name.clone(),
+                        type_: type_.clone(),
+                        value: String::new(), // Empty value for now
+                    };
+                    fn_body_table.add_symbol(ident_symbol.clone(), ident.clone());
+                    parameters_symbol.push(ident);
+                }
             }
         }
 
@@ -348,6 +348,7 @@ impl SemanticAnalyzer {
             self.process_stmt(context, *stmt)?;
         }
 
+        let fn_body_table = context.current_scope().cloned().unwrap();
         context.exit_scope();
 
         // Now add the function symbol to the parent symbol table
