@@ -1,7 +1,6 @@
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt;
-use std::rc::Rc;
 
 use crate::parser::ast::Type;
 
@@ -210,17 +209,15 @@ impl fmt::Display for Symbol {
 
 #[derive(Default, Debug, Clone)]
 pub struct SymbolTable {
-    name: String,
+    pub name: String,
     symbols: HashMap<String, Symbol>,
-    parent: Option<Rc<SymbolTable>>,
 }
 
 impl SymbolTable {
-    pub fn new(name: String, parent: Option<Rc<SymbolTable>>) -> Self {
+    pub fn new(name: String) -> Self {
         SymbolTable {
             name,
             symbols: HashMap::new(),
-            parent,
         }
     }
 
@@ -228,17 +225,7 @@ impl SymbolTable {
         self.symbols.insert(name, symbol);
     }
 
-    pub fn lookup(&self, name: &str) -> Option<Symbol> {
-        if let Some(symbol) = self.symbols.get(name) {
-            return Some(symbol.clone());
-        }
-        if let Some(parent_table) = self.parent.clone() {
-            return parent_table.lookup(name);
-        }
-        None
-    }
-
-    pub fn lookup_local_scope(&self, name: &str) -> Option<&Symbol> {
+    pub fn lookup(&self, name: &str) -> Option<&Symbol> {
         self.symbols.get(name)
     }
 
@@ -260,33 +247,47 @@ impl fmt::Display for SymbolTable {
     }
 }
 
+#[derive(Debug)]
 pub struct Context {
-    stack: Vec<SymbolTable>,
+    scopes: Vec<SymbolTable>,
 }
 
 impl Context {
     pub fn new() -> Self {
-        Context { stack: Vec::new() }
+        Context { scopes: Vec::new() }
     }
 
     pub fn enter_scope(&mut self, name: String) {
-        let new_table = SymbolTable::new() {
-            name,
-            symbols: HashMap::new(),
-        };
-        self.stack.push(new_table);
+        let new_table = SymbolTable::new(name.clone());
+        self.scopes.push(new_table);
     }
 
-    pub fn exit_scope(&mut self) {
-        self.stack.pop();
+    pub fn exit_scope(&mut self) -> Option<SymbolTable> {
+        self.scopes.pop()
     }
 
     pub fn current_scope(&self) -> Option<&SymbolTable> {
-        self.stack.last()
+        self.scopes.last()
     }
 
     pub fn current_scope_mut(&mut self) -> Option<&mut SymbolTable> {
-        self.stack.last_mut()
+        self.scopes.last_mut()
+    }
+
+    pub fn lookup_current_scope(&self, symbol: &str) -> Option<&Symbol> {
+        if let Some(table) = self.current_scope() {
+            return table.lookup(symbol);
+        }
+        None
+    }
+
+    pub fn lookup(&self, symbol: &str) -> Option<&Symbol> {
+        for table in self.scopes.iter().rev() {
+            if let Some(sym) = table.symbols.get(symbol) {
+                return Some(sym);
+            }
+        }
+        None
     }
 }
 
@@ -304,7 +305,7 @@ impl GlobalSymbolTable {
         }
     }
 
-    pub fn lookup_symbol(&self, name: &str) -> Option<Symbol> {
+    pub fn lookup_symbol(&self, name: &str) -> Option<&Symbol> {
         for symbol_table in self.packages.values() {
             match symbol_table.lookup(name) {
                 Some(symbol) => return Some(symbol),
@@ -331,7 +332,7 @@ impl GlobalSymbolTable {
         return self
             .packages
             .entry(name.to_string().clone())
-            .or_insert(SymbolTable::new(name.to_string().clone(), None));
+            .or_insert(SymbolTable::new(name.to_string().clone()));
     }
 
     pub fn debug_print_table(&self) {
