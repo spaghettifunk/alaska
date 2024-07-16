@@ -1,22 +1,41 @@
 use crate::lexer::TokenKind;
-use std::fmt;
+use std::{collections::HashMap, fmt};
 
 pub type Identifier = String;
 pub type TypeBox = Box<Type>;
 pub type ExprBox = Box<Expr>;
 pub type StmtBox = Box<Stmt>;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Type {
+    Int,
+    Float,
+    Char,
+    Bool,
+    Enum,
+    String,
+    Array(TypeBox),
+    Custom { name: String, generics: Option<Vec<Type>> },
+    Optional(TypeBox), // Represents an optional type
+    Unknown,
+}
+
+#[derive(Debug, Clone)]
+pub struct CustomType {
+    pub name: String,
+    pub fields: Option<HashMap<String, Type>>,  // For structs
+    pub methods: Option<HashMap<String, Type>>, // For interfaces
+    pub variants: Option<Vec<String>>,          // For enums
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum Expr {
-    Int(usize),
-    Float(f64),
-    Str(String),
-    Bool(bool),
-    Char(char),
+    IntegerLiteral(i64),
+    FloatLiteral(f64),
+    StringLiteral(String),
+    BoolLiteral(bool),
+    CharLiteral(char),
     Nil,
-    Struct(String),    // Struct type with the name of the struct
-    Interface(String), // Interface type with the name of the interface
-    Enum(String),      // Enum type with the name of the enum
     Variable(Identifier),
     PrefixOp {
         op: TokenKind,
@@ -62,92 +81,39 @@ pub enum Expr {
 impl Expr {
     pub fn type_to_string(&self) -> String {
         match self {
-            Expr::Int(i) => i.to_string(),
-            Expr::Float(fl) => fl.to_string(),
-            Expr::Str(s) => s.clone(),
-            Expr::Bool(b) => b.to_string(),
-            Expr::Char(c) => c.to_string(),
+            Expr::IntegerLiteral(i) => i.to_string(),
+            Expr::FloatLiteral(fl) => fl.to_string(),
+            Expr::StringLiteral(s) => s.clone(),
+            Expr::BoolLiteral(b) => b.to_string(),
+            Expr::CharLiteral(c) => c.to_string(),
             Expr::Nil => "nil".to_string(),
-            Expr::Struct(s) => format!("struct {}", s),
-            Expr::Interface(i) => format!("interface {}", i),
-            Expr::Enum(e) => format!("enum {}", e),
             _ => "unknown".to_string(),
         }
     }
 
     pub fn from_string_to_type(s: String) -> Expr {
-        if let Ok(i) = s.parse::<usize>() {
-            return Expr::Int(i);
+        if let Ok(i) = s.parse::<i64>() {
+            return Expr::IntegerLiteral(i);
         }
         if let Ok(fl) = s.parse::<f64>() {
-            return Expr::Float(fl);
+            return Expr::FloatLiteral(fl);
         }
         if s == "nil" {
             return Expr::Nil;
         }
         if s == "true" {
-            return Expr::Bool(true);
+            return Expr::BoolLiteral(true);
         }
         if s == "false" {
-            return Expr::Bool(false);
+            return Expr::BoolLiteral(false);
         }
         if s.starts_with('\'') && s.ends_with('\'') {
-            return Expr::Char(s.chars().nth(1).unwrap());
+            return Expr::CharLiteral(s.chars().nth(1).unwrap());
         }
         if s.starts_with('"') && s.ends_with('"') {
-            return Expr::Str(s[1..s.len() - 1].to_string());
+            return Expr::StringLiteral(s[1..s.len() - 1].to_string());
         }
         Expr::Nil
-    }
-}
-
-impl fmt::Display for Expr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Expr::Int(i) => write!(f, "{}", i),
-            Expr::Float(fl) => write!(f, "{}", fl),
-            Expr::Str(s) => write!(f, r#""{}""#, s),
-            Expr::Bool(b) => write!(f, "{}", b),
-            Expr::Char(c) => write!(f, "'{}'", c),
-            Expr::Nil => write!(f, "nil"),
-            Expr::Struct(s) => write!(f, "struct {}", s),
-            Expr::Interface(i) => write!(f, "interface {}", i),
-            Expr::Enum(e) => write!(f, "enum {}", e),
-            Expr::PrefixOp { op, expr } => write!(f, "({} {})", op, expr),
-            Expr::BinaryOp { op, lhs, rhs } => write!(f, "({} {} {})", lhs, op, rhs),
-            Expr::PostfixOp { op, expr } => write!(f, "({} {})", expr, op),
-            Expr::Assignment { name, type_, value } => write!(f, "{}: {} = {}", name, type_, value),
-            Expr::FunctionCall { name, args } => {
-                write!(f, "{}(", name)?;
-                for arg in args {
-                    write!(f, "{},", arg)?;
-                }
-                write!(f, ")")
-            }
-            Expr::ArrayInitialization { elements } => {
-                write!(f, "[")?;
-                for element in elements {
-                    write!(f, "{},", element)?;
-                }
-                write!(f, "]")
-            }
-            Expr::ArrayAccess { name: array, index } => write!(f, "{}[{}]", array, index),
-            Expr::StructAccess {
-                name: struct_name,
-                field,
-            } => write!(f, "{}.{}", struct_name, field),
-            Expr::StructInstantiation { name, members } => {
-                write!(f, "{}", name)?;
-                write!(f, "{{")?;
-                for (name, value) in members {
-                    write!(f, "{}: {},", name, value)?;
-                }
-                write!(f, "}}")
-            }
-            Expr::Comment(text) => write!(f, "//{}", text),
-            Expr::BlockComment(text) => write!(f, "/*{}*/", text),
-            Expr::Variable(identifier) => write!(f, "{}", identifier),
-        }
     }
 }
 
@@ -254,56 +220,114 @@ pub struct SourceFile {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Type {
-    name: String,
-    literal: Expr,
-    generics: Option<Vec<Type>>,
-}
-
-impl Type {
-    // used to initialize a type with default values
-    // this is used in the samentic analysis step where
-    // we need to collect all the symbols in the fist pass
-    pub fn default() -> Self {
-        Type {
-            name: String::new(),
-            literal: Expr::Nil,
-            generics: None,
-        }
-    }
-
-    pub fn new(name: String, literal: Expr, generics: Option<Vec<Type>>) -> Self {
-        Type {
-            name,
-            literal,
-            generics,
-        }
-    }
-
-    pub fn compare(&self, other: &Type) -> bool {
-        self.name == other.name && self.literal == other.literal && self.generics == other.generics
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub struct AST {
     pub files: Vec<SourceFile>,
 }
 
 impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name)?;
-        if let Some(generics) = &self.generics {
-            write!(f, "<")?;
-            for (i, generic) in generics.iter().enumerate() {
-                if i > 0 {
-                    write!(f, ", ")?;
-                }
-                write!(f, "{}", generic)?;
+        match self {
+            Type::Int => write!(f, "int"),
+            Type::Float => write!(f, "float"),
+            Type::Char => write!(f, "char"),
+            Type::Bool => write!(f, "bool"),
+            Type::Enum => write!(f, "enum"),
+            Type::String => write!(f, "string"),
+            Type::Optional(expr) => {
+                write!(f, "{:?}", expr)?;
+                write!(f, "?")
             }
-            write!(f, ">")?;
+            Type::Custom { name, generics } => {
+                write!(f, "{}", name)?;
+                if let Some(generics) = generics {
+                    write!(f, "<")?;
+                    for (i, generic) in generics.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}", generic)?;
+                    }
+                    write!(f, ">")?;
+                }
+                Ok(())
+            }
+            Type::Array(lit) => write!(f, "{}[]", lit),
+            Type::Unknown => write!(f, "unknown"),
         }
-        Ok(())
+    }
+}
+
+impl fmt::Display for CustomType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name)?;
+        if let Some(fields) = &self.fields {
+            write!(f, "{{\n")?;
+            for (name, type_) in fields {
+                write!(f, "{}: {},\n", name, type_)?;
+            }
+            write!(f, "}}")
+        } else if let Some(methods) = &self.methods {
+            write!(f, "{{\n")?;
+            for (name, type_) in methods {
+                write!(f, "{}: {},\n", name, type_)?;
+            }
+            write!(f, "}}")
+        } else if let Some(variants) = &self.variants {
+            write!(f, "{{\n")?;
+            for variant in variants {
+                write!(f, "{},\n", variant)?;
+            }
+            write!(f, "}}")
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl fmt::Display for Expr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Expr::IntegerLiteral(i) => write!(f, "{}", i),
+            Expr::FloatLiteral(fl) => write!(f, "{}", fl),
+            Expr::StringLiteral(s) => write!(f, r#""{}""#, s),
+            Expr::BoolLiteral(b) => write!(f, "{}", b),
+            Expr::CharLiteral(c) => write!(f, "'{}'", c),
+            Expr::Nil => write!(f, "nil"),
+            Expr::PrefixOp { op, expr } => write!(f, "({} {})", op, expr),
+            Expr::BinaryOp { op, lhs, rhs } => write!(f, "({} {} {})", lhs, op, rhs),
+            Expr::PostfixOp { op, expr } => write!(f, "({} {})", expr, op),
+            Expr::Assignment { name, type_, value } => write!(f, "{}: {} = {}", name, type_, value),
+            Expr::FunctionCall { name, args } => {
+                write!(f, "{}(", name)?;
+                for arg in args {
+                    write!(f, "{},", arg)?;
+                }
+                write!(f, ")")
+            }
+            Expr::ArrayInitialization { elements } => {
+                write!(f, "[")?;
+                for element in elements {
+                    write!(f, "{},", element)?;
+                }
+                write!(f, "]")
+            }
+            Expr::ArrayAccess { name: array, index } => write!(f, "{}[{}]", array, index),
+            Expr::StructAccess {
+                name: struct_name,
+                field,
+            } => write!(f, "{}.{}", struct_name, field),
+            Expr::StructInstantiation { name, members } => {
+                write!(f, "{}", name)?;
+                write!(f, "{{")?;
+                for (name, value) in members {
+                    write!(f, "{}: {},", name, value)?;
+                }
+                write!(f, "}}")
+            }
+            Expr::Comment(text) => write!(f, "//{}", text),
+            Expr::BlockComment(text) => write!(f, "/*{}*/", text),
+            Expr::Variable(identifier) => write!(f, "{}", identifier),
+        }
     }
 }
 

@@ -389,7 +389,10 @@ where
             is_public,
             name: name.clone(),
             members,
-            type_: ast::Type::new(name.clone(), ast::Expr::Enum(name.clone()), None),
+            type_: ast::Type::Custom {
+                name: name.clone(),
+                generics: None,
+            },
         })
     }
 
@@ -428,29 +431,23 @@ where
                     found => panic!("Expected `,` or `>` after generic type, found `{}` instead", found),
                 }
             }
-            ast::Type::new(
-                type_name.clone().unwrap(),
-                ast::Expr::from_string_to_type(type_name.clone().unwrap()),
-                if generics.len() > 0 { Some(generics) } else { None },
-            )
+            ast::Type::Custom {
+                name: type_name.clone().unwrap(),
+                generics: if generics.len() > 0 { Some(generics) } else { None },
+            }
         // check if the type is an array
         } else if self.at(T!['[']) {
             // array declaration
             self.consume(T!['[']);
             self.consume(T![']']);
-            // TODO: do I need to mark the Type object that it is an array?
-            ast::Type::new(
-                type_name.clone().unwrap(),
-                ast::Expr::from_string_to_type(type_name.clone().unwrap()),
-                None,
-            )
-        // just a name of a type - probably coming from a struct or elsewhere
+            // we don't know the type yet. It depends on the elements
+            ast::Type::Array(Box::new(ast::Type::Unknown))
         } else {
-            ast::Type::new(
-                type_name.clone().unwrap(),
-                ast::Expr::from_string_to_type(type_name.clone().unwrap()),
-                None,
-            )
+            // just a name of a type - probably coming from a struct or elsewhere
+            ast::Type::Custom {
+                name: type_name.clone().unwrap(),
+                generics: None,
+            }
         }
     }
 
@@ -472,7 +469,7 @@ where
 
         Ok(ast::Stmt::Let {
             name,
-            type_: ast::Type::new("Nil".to_string(), ast::Expr::Nil, None),
+            type_: ast::Type::Unknown,
             expr: Box::new(value.unwrap()),
         })
     }
@@ -610,7 +607,7 @@ where
 
         Ok(ast::Stmt::Expression(Box::new(ast::Expr::Assignment {
             name,
-            type_: Box::new(ast::Type::new("nil".to_string(), ast::Expr::Nil, None)),
+            type_: Box::new(ast::Type::Unknown),
             value: Box::new(value?),
         })))
     }
@@ -1500,29 +1497,26 @@ mod tests {
                 assert_eq!(bar, "bar");
                 assert_eq!(
                     bar_type,
-                    &ast::Type::new(
-                        "Bar".to_string(),
-                        ast::Expr::Struct("Bar".to_string()),
-                        Some(vec![
-                            ast::Type::new(
-                                "Baz".to_string(),
-                                ast::Expr::Nil,
-                                Some(vec![ast::Type::new("T".to_string(), ast::Expr::Nil, None)])
-                            ),
-                            ast::Type::new("U".to_string(), ast::Expr::Nil, None)
+                    &ast::Type::Custom {
+                        name: "Bar".to_string(),
+                        generics: Some(vec![
+                            ast::Type::Custom {
+                                name: "Baz".to_string(),
+                                generics: Some(vec![ast::Type::Custom {
+                                    name: "T".to_string(),
+                                    generics: None
+                                }])
+                            },
+                            ast::Type::Custom {
+                                name: "U".to_string(),
+                                generics: None
+                            }
                         ])
-                    )
+                    }
                 );
 
                 assert_eq!(body.len(), 3);
-                assert_eq!(
-                    return_type,
-                    Some(vec![ast::Type::new(
-                        "string".to_string(),
-                        ast::Expr::Str("".to_string()),
-                        None
-                    )])
-                );
+                assert_eq!(return_type, Some(vec![ast::Type::String]));
             }
             _ => unreachable!(),
         };
@@ -1558,14 +1552,19 @@ mod tests {
                 assert_eq!(name, "Foo");
                 assert_eq!(
                     type_,
-                    ast::Type::new(
-                        "Foo".to_string(),
-                        ast::Expr::Struct("Foo".to_string()),
-                        Some(vec![
-                            ast::Type::new("T".to_string(), ast::Expr::Nil, None),
-                            ast::Type::new("U".to_string(), ast::Expr::Nil, None),
+                    ast::Type::Custom {
+                        name: "Foo".to_string(),
+                        generics: Some(vec![
+                            ast::Type::Custom {
+                                name: "T".to_string(),
+                                generics: None
+                            },
+                            ast::Type::Custom {
+                                name: "U".to_string(),
+                                generics: None
+                            },
                         ])
-                    )
+                    }
                 );
                 assert_eq!(members.len(), 2);
                 let member = &members[0];
@@ -1574,10 +1573,7 @@ mod tests {
                     ast::Stmt::StructMember { is_public, name, type_ } => {
                         assert_eq!(*is_public, false);
                         assert_eq!(name, "x");
-                        assert_eq!(
-                            type_,
-                            &ast::Type::new("String".to_string(), ast::Expr::Str("".to_string()), None)
-                        );
+                        assert_eq!(type_, &ast::Type::String);
                     }
                     _ => unreachable!(),
                 }
@@ -1589,18 +1585,22 @@ mod tests {
                         assert_eq!(name, "bar");
                         assert_eq!(
                             type_,
-                            &ast::Type::new(
-                                "Bar".to_string(),
-                                ast::Expr::Struct("Bar".to_string()),
-                                Some(vec![
-                                    ast::Type::new(
-                                        "Baz".to_string(),
-                                        ast::Expr::Nil,
-                                        Some(vec![ast::Type::new("T".to_string(), ast::Expr::Nil, None)])
-                                    ),
-                                    ast::Type::new("U".to_string(), ast::Expr::Nil, None)
+                            &ast::Type::Custom {
+                                name: "Bar".to_string(),
+                                generics: Some(vec![
+                                    ast::Type::Custom {
+                                        name: "Baz".to_string(),
+                                        generics: Some(vec![ast::Type::Custom {
+                                            name: "T".to_string(),
+                                            generics: None
+                                        }])
+                                    },
+                                    ast::Type::Custom {
+                                        name: "U".to_string(),
+                                        generics: None
+                                    }
                                 ])
-                            )
+                            }
                         );
                     }
                     _ => unreachable!(),
@@ -1679,7 +1679,10 @@ mod tests {
                             assert_eq!(members.len(), 2);
                             assert_eq!(
                                 type_,
-                                ast::Type::new("Foo".to_string(), ast::Expr::Struct("Foo".to_string()), None)
+                                ast::Type::Custom {
+                                    name: "Foo".to_string(),
+                                    generics: None
+                                }
                             );
                         }
                         ast::Stmt::PackageDeclaration(name) => {
@@ -1704,7 +1707,7 @@ mod tests {
             expr,
             ast::Stmt::Let {
                 name: "k".to_string(),
-                type_: ast::Type::new("Nil".to_string(), ast::Expr::Nil, None),
+                type_: ast::Type::Unknown,
                 expr: Box::new(ast::Expr::BinaryOp {
                     op: TokenKind::Plus,
                     lhs: Box::new(ast::Expr::BinaryOp {
@@ -1712,7 +1715,7 @@ mod tests {
                         lhs: Box::new(ast::Expr::BinaryOp {
                             op: TokenKind::Star,
                             lhs: Box::new(ast::Expr::Variable("x".to_string())),
-                            rhs: Box::new(ast::Expr::Int(4))
+                            rhs: Box::new(ast::Expr::IntegerLiteral(4))
                         }),
                         rhs: Box::new(ast::Expr::BinaryOp {
                             op: TokenKind::Star,
@@ -1720,10 +1723,10 @@ mod tests {
                                 op: TokenKind::Minus,
                                 expr: Box::new(ast::Expr::PostfixOp {
                                     op: TokenKind::Bang,
-                                    expr: Box::new(ast::Expr::Int(2))
+                                    expr: Box::new(ast::Expr::IntegerLiteral(2))
                                 })
                             }),
-                            rhs: Box::new(ast::Expr::Int(3))
+                            rhs: Box::new(ast::Expr::IntegerLiteral(3))
                         })
                     }),
                     rhs: Box::new(ast::Expr::Variable("z".to_string()))
@@ -1745,8 +1748,8 @@ mod tests {
             ast::Stmt::Return {
                 exprs: vec![Box::new(ast::Expr::BinaryOp {
                     op: TokenKind::Plus,
-                    lhs: Box::new(ast::Expr::Int(7)),
-                    rhs: Box::new(ast::Expr::Int(3))
+                    lhs: Box::new(ast::Expr::IntegerLiteral(7)),
+                    rhs: Box::new(ast::Expr::IntegerLiteral(3))
                 })]
             }
         );
@@ -1775,7 +1778,10 @@ mod tests {
             stmt,
             ast::Stmt::Enum {
                 is_public: false,
-                type_: ast::Type::new("Foo".to_string(), ast::Expr::Enum("Foo".to_string()), None),
+                type_: ast::Type::Custom {
+                    name: "Foo".to_string(),
+                    generics: None
+                },
                 name: "Foo".to_string(),
                 members: vec!["Bar".to_string(), "Baz".to_string(), "Qux".to_string()]
             }
@@ -1804,41 +1810,22 @@ mod tests {
             stmt,
             ast::Stmt::Interface {
                 name: "Foo".to_string(),
-                type_: ast::Type::new("Foo".to_string(), ast::Expr::Interface("Foo".to_string()), None),
+                type_: ast::Type::Custom {
+                    name: "Foo".to_string(),
+                    generics: None
+                },
                 methods: vec![
                     Box::new(ast::Stmt::InterfaceFunctionSignature {
                         name: "bar".to_string(),
                         generics: None,
-                        parameters: Some(vec![(
-                            "x".to_string(),
-                            ast::Type::new(
-                                "int".to_string(),
-                                ast::Expr::from_string_to_type("int".to_string()),
-                                None
-                            )
-                        )]),
-                        return_type: Some(vec![ast::Type::new(
-                            "int".to_string(),
-                            ast::Expr::from_string_to_type("int".to_string()),
-                            None
-                        )])
+                        parameters: Some(vec![("x".to_string(), ast::Type::Int)]),
+                        return_type: Some(vec![ast::Type::Int])
                     }),
                     Box::new(ast::Stmt::InterfaceFunctionSignature {
                         name: "baz".to_string(),
                         generics: None,
-                        parameters: Some(vec![(
-                            "y".to_string(),
-                            ast::Type::new(
-                                "string".to_string(),
-                                ast::Expr::from_string_to_type("string".to_string()),
-                                None
-                            )
-                        )]),
-                        return_type: Some(vec![ast::Type::new(
-                            "string".to_string(),
-                            ast::Expr::from_string_to_type("string".to_string()),
-                            None
-                        )])
+                        parameters: Some(vec![("y".to_string(), ast::Type::String,)]),
+                        return_type: Some(vec![ast::Type::String])
                     })
                 ]
             }

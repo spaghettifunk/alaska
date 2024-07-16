@@ -1,11 +1,9 @@
-use std::cell::RefCell;
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
 
 use crate::parser::ast::Type;
-
-pub type SymbolTableRc = Rc<RefCell<SymbolTable>>;
 
 #[derive(Debug, Clone)]
 pub enum Symbol {
@@ -23,7 +21,7 @@ pub enum Symbol {
         is_public: bool,
         name: String,
         type_: Type, // Struct type
-        table: SymbolTableRc,
+        table: SymbolTable,
     }, // Struct with its own symbol table
     StructMember {
         is_public: bool,
@@ -34,24 +32,24 @@ pub enum Symbol {
         name: String,
         type_: Type,
         interfaces: Option<Vec<Type>>, // Vector of interface names
-        table: SymbolTableRc,          // Impl with its own symbol table
+        table: SymbolTable,            // Impl with its own symbol table
     },
     Interface {
         name: String,
         type_: Type,
-        table: SymbolTableRc, // Interface with its own symbol table
+        table: SymbolTable, // Interface with its own symbol table
     },
     InterfaceMethod {
         name: String,
         parameters: Option<Vec<(String, Type)>>, // Vector of (parameter name, parameter type)
         return_type: Option<Vec<Type>>,          // Optional vector of return types
     },
-    Block(Option<SymbolTableRc>), // Block with its own symbol table
+    Block(Option<SymbolTable>), // Block with its own symbol table
     Enum {
         is_public: bool,
         name: String,
         type_: Type,
-        table: SymbolTableRc,
+        table: SymbolTable,
     },
     EnumMember {
         name: String,
@@ -63,7 +61,7 @@ pub enum Symbol {
         name: String,
         parameters: Option<Vec<Symbol>>, // Vector of Symbol::FunctionParameter
         return_type: Option<Vec<Type>>,  // Optional vector of return types
-        body: SymbolTableRc,             // Function body with its own symbol table
+        body: SymbolTable,               // Function body with its own symbol table
     },
     FunctionCall {
         name: String,
@@ -73,21 +71,21 @@ pub enum Symbol {
         iterator: String,
         start: String,
         end: String,
-        body: SymbolTableRc, // For loop body with its own symbol table
+        body: SymbolTable, // For loop body with its own symbol table
     },
     RangeLoop {
         iterator: String,
         iterable: String,
-        body: SymbolTableRc, // Range loop body with its own symbol table
+        body: SymbolTable, // Range loop body with its own symbol table
     },
     WhileLoop {
         condition: String,
-        body: SymbolTableRc, // While loop body with its own symbol table
+        body: SymbolTable, // While loop body with its own symbol table
     },
     IfStatement {
         condition: String,
-        then_body: SymbolTableRc,         // Then body with its own symbol table
-        else_body: Option<SymbolTableRc>, // Optional else body with its own symbol table
+        then_body: SymbolTable,         // Then body with its own symbol table
+        else_body: Option<SymbolTable>, // Optional else body with its own symbol table
     },
     Use(String), // Use statement
 }
@@ -189,7 +187,7 @@ impl fmt::Display for Symbol {
                 write!(f, "}}\n")
             }
             Symbol::IfStatement { condition, .. } => {
-                write!(f, "IfStatement",)
+                write!(f, "IfStatement: {}", condition)
             }
             Symbol::Use(name) => {
                 write!(f, "Use: {}\n", name)
@@ -210,15 +208,15 @@ impl fmt::Display for Symbol {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Default, Debug, Clone)]
 pub struct SymbolTable {
     name: String,
     symbols: HashMap<String, Symbol>,
-    parent: Option<Rc<RefCell<SymbolTable>>>,
+    parent: Option<Rc<SymbolTable>>,
 }
 
 impl SymbolTable {
-    pub fn new(name: String, parent: Option<Rc<RefCell<SymbolTable>>>) -> Self {
+    pub fn new(name: String, parent: Option<Rc<SymbolTable>>) -> Self {
         SymbolTable {
             name,
             symbols: HashMap::new(),
@@ -235,7 +233,7 @@ impl SymbolTable {
             return Some(symbol.clone());
         }
         if let Some(parent_table) = self.parent.clone() {
-            return parent_table.borrow().lookup(name);
+            return parent_table.lookup(name);
         }
         None
     }
@@ -262,11 +260,41 @@ impl fmt::Display for SymbolTable {
     }
 }
 
+pub struct Context {
+    stack: Vec<SymbolTable>,
+}
+
+impl Context {
+    pub fn new() -> Self {
+        Context { stack: Vec::new() }
+    }
+
+    pub fn enter_scope(&mut self, name: String) {
+        let new_table = SymbolTable::new() {
+            name,
+            symbols: HashMap::new(),
+        };
+        self.stack.push(new_table);
+    }
+
+    pub fn exit_scope(&mut self) {
+        self.stack.pop();
+    }
+
+    pub fn current_scope(&self) -> Option<&SymbolTable> {
+        self.stack.last()
+    }
+
+    pub fn current_scope_mut(&mut self) -> Option<&mut SymbolTable> {
+        self.stack.last_mut()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct GlobalSymbolTable {
     // Global symbol table in which all the symbols are stored
     // here we store mostly at package level
-    pub packages: HashMap<String, Rc<RefCell<SymbolTable>>>,
+    pub packages: HashMap<String, SymbolTable>,
 }
 
 impl GlobalSymbolTable {
@@ -278,7 +306,7 @@ impl GlobalSymbolTable {
 
     pub fn lookup_symbol(&self, name: &str) -> Option<Symbol> {
         for symbol_table in self.packages.values() {
-            match symbol_table.borrow_mut().lookup(name) {
+            match symbol_table.lookup(name) {
                 Some(symbol) => return Some(symbol),
                 None => continue,
             }
@@ -286,7 +314,7 @@ impl GlobalSymbolTable {
         None
     }
 
-    pub fn get_symbol_table_by_name(&self, name: &str) -> Option<Rc<RefCell<SymbolTable>>> {
+    pub fn get_symbol_table_by_name(&self, name: &str) -> Option<SymbolTable> {
         for symbol_table in self.packages.values() {
             if symbol_table.borrow().name == name {
                 return Some(symbol_table.clone());
@@ -295,29 +323,27 @@ impl GlobalSymbolTable {
         None
     }
 
-    pub fn new_package_symbol_table(&mut self, name: &str, sym_name: &str) {
-        self.packages.insert(
-            name.to_string().clone(),
-            Rc::new(RefCell::new(SymbolTable::new(sym_name.to_string().clone(), None))),
-        );
+    pub fn add_package_symbol_table(&mut self, name: &str, symbol_table: SymbolTable) {
+        self.packages.insert(name.to_string().clone(), symbol_table);
     }
 
-    pub fn get_package_symbol_table(&mut self, name: &str) -> &mut Rc<RefCell<SymbolTable>> {
-        self.packages
-            .entry(format!("pkg.{}", name))
-            .or_insert_with(|| Rc::new(RefCell::new(SymbolTable::new(name.to_string(), None))))
+    pub fn get_package_symbol_table(&mut self, name: &str) -> &mut SymbolTable {
+        return self
+            .packages
+            .entry(name.to_string().clone())
+            .or_insert(SymbolTable::new(name.to_string().clone(), None));
     }
 
     pub fn debug_print_table(&self) {
         for (package_name, symbol_table) in self.packages.clone() {
             println!("Package: {}", package_name);
             println!("{}", symbol_table.borrow());
-            self.print_nested_tables(symbol_table.clone(), 1);
+            self.print_nested_tables(symbol_table, 1);
         }
     }
 
-    fn print_nested_tables(&self, table: Rc<RefCell<SymbolTable>>, depth: usize) {
-        for symbol in table.borrow().symbols.values() {
+    fn print_nested_tables(&self, table: SymbolTable, depth: usize) {
+        for symbol in table.symbols.values() {
             match symbol {
                 Symbol::Struct { table, .. }
                 | Symbol::Impl { table, .. }
@@ -329,18 +355,18 @@ impl GlobalSymbolTable {
                 | Symbol::RangeLoop { body: table, .. }
                 | Symbol::WhileLoop { body: table, .. } => {
                     println!("Nested Table: {}", table.borrow().name);
-                    println!("{}", table.borrow());
+                    println!("{}", table);
                     self.print_nested_tables(table.clone(), depth + 1);
                 }
                 Symbol::IfStatement {
                     then_body, else_body, ..
                 } => {
                     println!("Then Table: {}", then_body.borrow().name);
-                    println!("{}", then_body.borrow());
+                    println!("{}", then_body);
                     self.print_nested_tables(then_body.clone(), depth + 1);
                     if let Some(else_body) = else_body {
                         println!("Else Table: {}", else_body.borrow().name);
-                        println!("{}", else_body.borrow());
+                        println!("{}", else_body);
                         self.print_nested_tables(else_body.clone(), depth + 1);
                     }
                 }

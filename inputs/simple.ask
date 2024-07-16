@@ -1,18 +1,16 @@
 package main;
 
-/*
 fn test() -> string {
     let k = 1;
     return "hello world";
-}*/
+}
 
 fn main() -> int {    
     let f = 10 + 11;        
     let k = (f - 3)/9 - 1;
 
-    //test();    
-    //later(10);
-
+    test();    
+    let l = later(10);
     
     if (f < 42) {
         let k = "shadow variable k";
@@ -21,12 +19,11 @@ fn main() -> int {
         return f;
     }
 
-   k = fancy(f, k);
+    // k = fancy(f, k);
 
     return k;
 }
 
-/*
 struct test {
     pub name string
     pub color int
@@ -35,11 +32,10 @@ struct test {
 fn later(xk: int) -> int {
     let unused = "hello later";
     let test = test{name: "davide", color: 42};
-    // let result = fancy(xk, test.color); // test.color doesn't work - it is intepreted as `identifier.color`
+    let result = fancy(xk, test.color);
 
-    // return result;
     return -1;
-}*/
+}
 
 fn fancy(a: int, b: int) -> int {
     return b*a;

@@ -104,26 +104,26 @@ where
                     self.text(literal_token)
                 };
                 let expr_lit = match lit {
-                    T![int] => ast::Expr::Int(
+                    T![int] => ast::Expr::IntegerLiteral(
                         literal_text
                             .parse()
                             .expect(&format!("invalid integer literal: `{}`", literal_text)),
                     ),
-                    T![float] => ast::Expr::Float(
+                    T![float] => ast::Expr::FloatLiteral(
                         literal_text
                             .parse()
                             .expect(&format!("invalid floating point literal: `{}`", literal_text)),
                     ),
-                    T![string] => ast::Expr::Str(
+                    T![string] => ast::Expr::StringLiteral(
                         // trim the quotation marks
                         literal_text[1..(literal_text.len() - 1)].to_string(),
                     ),
-                    T![bool] => ast::Expr::Bool(
+                    T![bool] => ast::Expr::BoolLiteral(
                         literal_text
                             .parse()
                             .expect(&format!("invalid boolean literal: `{}`", literal_text)),
                     ),
-                    T![char] => ast::Expr::Char(
+                    T![char] => ast::Expr::CharLiteral(
                         // trim the quotation marks
                         literal_text[1..(literal_text.len() - 1)].chars().next().unwrap(),
                     ),
@@ -370,11 +370,11 @@ mod tests {
 
         // Weird spaces are to test that whitespace gets filtered out
         let expr = parse("42");
-        assert_eq!(expr, ast::Expr::Int(42));
+        assert_eq!(expr, ast::Expr::IntegerLiteral(42));
         let expr = parse("  2.7768");
-        assert_eq!(expr, ast::Expr::Float(2.7768));
+        assert_eq!(expr, ast::Expr::FloatLiteral(2.7768));
         let expr = parse(r#""I am a String!""#);
-        assert_eq!(expr, ast::Expr::Str("I am a String!".to_string()));
+        assert_eq!(expr, ast::Expr::StringLiteral("I am a String!".to_string()));
         let expr = parse("foo");
         assert_eq!(expr, ast::Expr::Variable("foo".to_string()));
         let expr = parse("bar (  x, 2)");
@@ -384,7 +384,7 @@ mod tests {
                 name: "bar".to_string(),
                 args: vec![
                     Box::new(ast::Expr::Variable("x".to_string())),
-                    Box::new(ast::Expr::Int(2)),
+                    Box::new(ast::Expr::IntegerLiteral(2)),
                 ],
             }
         );
@@ -401,7 +401,7 @@ mod tests {
             expr,
             ast::Expr::PrefixOp {
                 op: T![-],
-                expr: Box::new(ast::Expr::Int(13)),
+                expr: Box::new(ast::Expr::IntegerLiteral(13)),
             }
         );
     }
