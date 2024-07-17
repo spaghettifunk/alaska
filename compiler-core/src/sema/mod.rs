@@ -1,7 +1,10 @@
 mod sym;
+mod typ;
 
+use core::fmt;
 use std::borrow::BorrowMut;
 
+use typ::TypeChecker;
 use uuid::Uuid;
 
 use sym::{Context, GlobalSymbolTable, Symbol, SymbolTable};
@@ -10,12 +13,14 @@ use crate::parser::ast::{self, Expr, Stmt, AST};
 
 #[derive(Debug)]
 pub struct SemanticAnalyzer {
+    pub global_symbol_table: GlobalSymbolTable,
     pub forward_references_symbol_table: SymbolTable,
 }
 
 impl SemanticAnalyzer {
     pub fn new() -> SemanticAnalyzer {
         SemanticAnalyzer {
+            global_symbol_table: GlobalSymbolTable::new(),
             forward_references_symbol_table: {
                 let name = "forward_references".to_string();
                 SymbolTable::new(name.clone())
@@ -26,14 +31,11 @@ impl SemanticAnalyzer {
     // first pass to collect as many symbols as possible
     pub fn analyze(&mut self, ast: AST) -> Result<(), Vec<String>> {
         let mut errors: Vec<String> = Vec::new();
-        let mut global_symbol_table = GlobalSymbolTable::new();
         let mut context = Context::new();
-
-        println!("First pass (symbols collection)...");
 
         let files = ast.files.clone();
         files.iter().all(|sourcefile| {
-            println!("analyzing file: {}", sourcefile.name);
+            println!("Analyzing file: {}", sourcefile.name);
 
             for stmt in &sourcefile.statements {
                 let pkg_decl = stmt.is_package_declaration();
@@ -41,7 +43,7 @@ impl SemanticAnalyzer {
                     let pkg_name = format!("pkg.{}", pkg_decl.1);
                     context.enter_scope(pkg_name.clone());
 
-                    let current_package_symbol_table = global_symbol_table.get_package_symbol_table(&pkg_name);
+                    let current_package_symbol_table = self.global_symbol_table.get_package_symbol_table(&pkg_name);
 
                     if let Some(current_table) = context.current_scope_mut() {
                         *current_table = current_package_symbol_table.clone();
@@ -55,7 +57,7 @@ impl SemanticAnalyzer {
 
             if let Some(pkg_name) = context.current_scope().map(|table| table.name.clone()) {
                 if let Some(exited_table) = context.exit_scope() {
-                    global_symbol_table.packages.insert(pkg_name, exited_table);
+                    self.global_symbol_table.packages.insert(pkg_name, exited_table);
                 }
             }
 
@@ -63,8 +65,7 @@ impl SemanticAnalyzer {
         });
 
         println!("First pass (symbols collection) - completed");
-        println!("Second pass (forward references)...");
-        match self.forward_references_pass(&global_symbol_table) {
+        match self.forward_references_pass() {
             Ok(_) => {}
             Err(mut es) => {
                 errors.append(&mut es);
@@ -73,12 +74,19 @@ impl SemanticAnalyzer {
 
         println!("Second pass (forward references) - completed");
 
+        let mut type_checker = TypeChecker::new();
+        match type_checker.type_check_pass(ast, &context) {
+            Ok(_) => {}
+            Err(mut es) => {
+                errors.append(&mut es);
+            }
+        }
+
+        println!("Third pass (type checking) - completed");
+
         if errors.len() > 0 {
             return Err(errors);
         }
-
-        // TODO: remove this
-        println!("{:#?}", global_symbol_table);
 
         Ok(())
     }
@@ -149,11 +157,22 @@ impl SemanticAnalyzer {
                     return Err(format!("error: method `{}` in interface already declared", name));
                 }
                 if let Some(symbol_table) = context.current_scope_mut() {
+                    let mut params: Vec<Symbol> = Vec::new();
+                    if parameters.is_some() {
+                        for (name, typ) in parameters.unwrap() {
+                            params.push(Symbol::Identifier {
+                                name: name.clone(),
+                                type_: typ.clone(),
+                                value: String::new(),
+                            })
+                        }
+                    }
+
                     symbol_table.add_symbol(
                         name.clone(),
                         Symbol::InterfaceMethod {
                             name: name.clone(),
-                            parameters: parameters.clone(),
+                            parameters: if params.len() > 0 { Some(params) } else { None },
                             return_type: return_type.clone(),
                         },
                     );
@@ -746,13 +765,13 @@ impl SemanticAnalyzer {
     }
 
     // forward references pass to check if all symbols are defined
-    pub fn forward_references_pass(&mut self, global_symbol_table: &GlobalSymbolTable) -> Result<(), Vec<String>> {
+    pub fn forward_references_pass(&mut self) -> Result<(), Vec<String>> {
         let result: Vec<String> = self
             .forward_references_symbol_table
             .get_symbols()
             .iter()
             .map(|(symbol_name, _)| {
-                let found = global_symbol_table.lookup_symbol(&symbol_name);
+                let found = self.global_symbol_table.lookup_symbol(&symbol_name);
                 match found {
                     Some(_) => "".to_string(),
                     None => format!("error: symbol `{}` undefined", symbol_name),
@@ -766,44 +785,10 @@ impl SemanticAnalyzer {
         }
         Ok(())
     }
+}
 
-    // type checking pass
-    pub fn type_check_pass(&mut self, ast: AST) -> Result<(), Vec<String>> {
-        let mut errors: Vec<String> = Vec::new();
-        for sourcefile in ast.files {
-            let mut current_package = String::new();
-            for stmt in sourcefile.statements {
-                let result = self.type_check_stmt(*stmt.clone(), &mut current_package, &None);
-                match result {
-                    Ok(_) => {}
-                    Err(e) => {
-                        errors.push(e);
-                    }
-                }
-            }
-        }
-
-        if errors.len() > 0 {
-            return Err(errors);
-        }
-
-        Ok(())
-    }
-
-    fn type_check_stmt(
-        &mut self,
-        stmt: Stmt,
-        current_package: &mut String,
-        symbol_table: &Option<Box<SymbolTable>>,
-    ) -> Result<(), String> {
-        match stmt {
-            _ => Ok(()),
-        }
-    }
-
-    fn type_check_expr(&mut self, expr: Expr) -> Result<(), String> {
-        match expr {
-            _ => Ok(()),
-        }
+impl fmt::Display for SemanticAnalyzer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:#?}", self.global_symbol_table)
     }
 }

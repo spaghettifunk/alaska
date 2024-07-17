@@ -40,8 +40,8 @@ pub enum Symbol {
     },
     InterfaceMethod {
         name: String,
-        parameters: Option<Vec<(String, Type)>>, // Vector of (parameter name, parameter type)
-        return_type: Option<Vec<Type>>,          // Optional vector of return types
+        parameters: Option<Vec<Symbol>>, // Vector of (parameter name, parameter type)
+        return_type: Option<Vec<Type>>,  // Optional vector of return types
     },
     Block(Option<SymbolTable>), // Block with its own symbol table
     Enum {
@@ -89,6 +89,96 @@ pub enum Symbol {
     Use(String), // Use statement
 }
 
+pub trait SymbolInfo {
+    fn name(&self) -> Option<&str>;
+    fn type_(&self) -> Option<&Type>;
+    fn value(&self) -> Option<&str>;
+    fn table(&self) -> Option<&SymbolTable>;
+    fn is_public(&self) -> Option<bool>;
+    fn parameters(&self) -> Option<Vec<Symbol>>;
+    fn return_type(&self) -> Option<Vec<Type>>;
+}
+
+impl SymbolInfo for Symbol {
+    fn name(&self) -> Option<&str> {
+        match self {
+            Symbol::Identifier { name, .. } => Some(name),
+            Symbol::Constant { name, .. } => Some(name),
+            Symbol::Struct { name, .. } => Some(name),
+            Symbol::StructMember { name, .. } => Some(name),
+            Symbol::Impl { name, .. } => Some(name),
+            Symbol::Interface { name, .. } => Some(name),
+            Symbol::InterfaceMethod { name, .. } => Some(name),
+            Symbol::Enum { name, .. } => Some(name),
+            Symbol::EnumMember { name, .. } => Some(name),
+            Symbol::Function { name, .. } => Some(name),
+            Symbol::FunctionCall { name, .. } => Some(name),
+            Symbol::Use(name) => Some(name),
+            _ => None,
+        }
+    }
+
+    fn type_(&self) -> Option<&Type> {
+        match self {
+            Symbol::Identifier { type_, .. } => Some(type_),
+            Symbol::Constant { type_, .. } => Some(type_),
+            Symbol::Struct { type_, .. } => Some(type_),
+            Symbol::StructMember { type_, .. } => Some(type_),
+            Symbol::Impl { type_, .. } => Some(type_),
+            Symbol::Interface { type_, .. } => Some(type_),
+            Symbol::Enum { type_, .. } => Some(type_),
+            Symbol::EnumMember { type_, .. } => Some(type_),
+            _ => None,
+        }
+    }
+
+    fn value(&self) -> Option<&str> {
+        match self {
+            Symbol::Identifier { name, type_, value } => Some(value),
+            Symbol::Constant { name, type_, value } => Some(value),
+            Symbol::EnumMember { name, type_, value } => Some(value),
+            _ => None,
+        }
+    }
+
+    fn table(&self) -> Option<&SymbolTable> {
+        match self {
+            Symbol::Struct { table, .. } => Some(table),
+            Symbol::Impl { table, .. } => Some(table),
+            Symbol::Interface { table, .. } => Some(table),
+            Symbol::Enum { table, .. } => Some(table),
+            Symbol::Block(table) => table.as_ref(),
+            _ => None,
+        }
+    }
+
+    fn is_public(&self) -> Option<bool> {
+        match self {
+            Symbol::Struct { is_public, .. } => Some(*is_public),
+            Symbol::StructMember { is_public, .. } => Some(*is_public),
+            Symbol::Enum { is_public, .. } => Some(*is_public),
+            Symbol::Function { is_public, .. } => Some(*is_public),
+            _ => None,
+        }
+    }
+
+    fn parameters(&self) -> Option<Vec<Symbol>> {
+        match self {
+            Symbol::InterfaceMethod { parameters, .. } => parameters.clone(),
+            Symbol::Function { parameters, .. } => parameters.clone(),
+            _ => None,
+        }
+    }
+
+    fn return_type(&self) -> Option<Vec<Type>> {
+        match self {
+            Symbol::InterfaceMethod { return_type, .. } => return_type.clone(),
+            Symbol::Function { return_type, .. } => return_type.clone(),
+            _ => None,
+        }
+    }
+}
+
 impl fmt::Display for Symbol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -126,8 +216,8 @@ impl fmt::Display for Symbol {
             } => {
                 write!(f, "InterfaceMethod(name: {}, parameters: [", name)?;
                 if parameters.is_some() {
-                    for (param_name, param_type) in parameters.as_ref().unwrap().iter() {
-                        write!(f, "({}, {}), ", param_name, param_type)?;
+                    for param in parameters.as_ref().unwrap().iter() {
+                        write!(f, "{}, ", param)?;
                     }
                 }
                 write!(f, "], return_type: [")?;

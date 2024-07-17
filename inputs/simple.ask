@@ -19,7 +19,7 @@ fn main() -> int {
         return f;
     }
 
-    // k = fancy(f, k);
+    k = fancy(f, k);
 
     return k;
 }

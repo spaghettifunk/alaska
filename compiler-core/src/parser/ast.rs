@@ -17,7 +17,35 @@ pub enum Type {
     Array(TypeBox),
     Custom { name: String, generics: Option<Vec<Type>> },
     Optional(TypeBox), // Represents an optional type
+    Nil,
     Unknown,
+}
+
+impl Type {
+    pub fn is_equal(&self, other: &Type) -> bool {
+        match (self, other) {
+            (Type::Int, Type::Int) => true,
+            (Type::Float, Type::Float) => true,
+            (Type::Char, Type::Char) => true,
+            (Type::Bool, Type::Bool) => true,
+            (Type::Enum, Type::Enum) => true,
+            (Type::String, Type::String) => true,
+            (Type::Array(lit1), Type::Array(lit2)) => lit1.is_equal(lit2),
+            (
+                Type::Custom {
+                    name: name1,
+                    generics: generics1,
+                },
+                Type::Custom {
+                    name: name2,
+                    generics: generics2,
+                },
+            ) => name1 == name2 && generics1 == generics2,
+            (Type::Optional(lit1), Type::Optional(lit2)) => lit1.is_equal(lit2),
+            (Type::Nil, Type::Nil) => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -253,6 +281,7 @@ impl fmt::Display for Type {
             }
             Type::Array(lit) => write!(f, "{}[]", lit),
             Type::Unknown => write!(f, "unknown"),
+            Type::Nil => write!(f, "nil"),
         }
     }
 }
