@@ -6,7 +6,7 @@ pub type TypeBox = Box<Type>;
 pub type ExprBox = Box<Expr>;
 pub type StmtBox = Box<Stmt>;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum Type {
     Int,
     Float,
@@ -14,8 +14,10 @@ pub enum Type {
     Bool,
     Enum,
     String,
-    Array(TypeBox),
-    Custom { name: String, generics: Option<Vec<Type>> },
+    Array(TypeBox, usize),
+    Struct { name: String },
+    Interface { name: String },
+    Custom { name: String },
     Optional(TypeBox), // Represents an optional type
     Nil,
     Unknown,
@@ -30,30 +32,40 @@ impl Type {
             (Type::Bool, Type::Bool) => true,
             (Type::Enum, Type::Enum) => true,
             (Type::String, Type::String) => true,
-            (Type::Array(lit1), Type::Array(lit2)) => lit1.is_equal(lit2),
-            (
-                Type::Custom {
-                    name: name1,
-                    generics: generics1,
-                },
-                Type::Custom {
-                    name: name2,
-                    generics: generics2,
-                },
-            ) => name1 == name2 && generics1 == generics2,
+            (Type::Array(lit1, _), Type::Array(lit2, _)) => lit1.is_equal(lit2),
+            (Type::Struct { name: name1 }, Type::Struct { name: name2 }) => name1 == name2,
+            (Type::Interface { name: name1 }, Type::Interface { name: name2 }) => name1 == name2,
             (Type::Optional(lit1), Type::Optional(lit2)) => lit1.is_equal(lit2),
             (Type::Nil, Type::Nil) => true,
             _ => false,
         }
     }
+
+    pub fn variant_eq(&self, other: &Type) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+    }
+
+    pub fn is_nil(&self) -> bool {
+        match self {
+            Type::Nil => true,
+            _ => false,
+        }
+    }
+
+    pub fn from_string_to_type(s: String) -> Type {
+        match s.as_str() {
+            "int" => Type::Int,
+            "float" => Type::Float,
+            "char" => Type::Char,
+            "bool" => Type::Bool,
+            "string" => Type::String,
+            _ => Type::Unknown,
+        }
+    }
 }
 
-#[derive(Debug, Clone)]
-pub struct CustomType {
-    pub name: String,
-    pub fields: Option<HashMap<String, Type>>,  // For structs
-    pub methods: Option<HashMap<String, Type>>, // For interfaces
-    pub variants: Option<Vec<String>>,          // For enums
+pub trait ExprInfo {
+    fn name(&self) -> Option<&str>;
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -102,6 +114,11 @@ pub enum Expr {
         name: String,
         members: Vec<(String, ExprBox)>,
     },
+    StructMember {
+        is_public: bool,
+        name: Identifier,
+        type_: Type,
+    },
     Comment(String),
     BlockComment(String),
 }
@@ -142,6 +159,20 @@ impl Expr {
             return Expr::StringLiteral(s[1..s.len() - 1].to_string());
         }
         Expr::Nil
+    }
+}
+
+impl ExprInfo for Expr {
+    fn name(&self) -> Option<&str> {
+        match self {
+            Expr::Assignment { name, .. } => Some(name),
+            Expr::FunctionCall { name, .. } => Some(name),
+            Expr::ArrayAccess { name, .. } => Some(name),
+            Expr::StructAccess { name, .. } => Some(name),
+            Expr::StructInstantiation { name, .. } => Some(name),
+            Expr::StructMember { name, .. } => Some(name),
+            _ => None,
+        }
     }
 }
 
@@ -202,18 +233,13 @@ pub enum Stmt {
         is_public: bool,
         name: Identifier,
         type_: Type,
-        members: Vec<StmtBox>,
-    },
-    StructMember {
-        is_public: bool,
-        name: Identifier,
-        type_: Type,
+        members: Vec<ExprBox>,
     },
     InterfaceFunctionSignature {
         name: Identifier,
         generics: Option<Vec<Type>>,
-        parameters: Option<Vec<(Identifier, Type)>>,
-        return_type: Option<Vec<Type>>,
+        parameters: Option<HashMap<Identifier, Type>>,
+        return_type: Option<Type>,
     },
     FunctionDeclaration {
         is_public: bool,
@@ -221,7 +247,7 @@ pub enum Stmt {
         generics: Option<Vec<Type>>,
         parameters: Option<Vec<(Identifier, Type)>>,
         body: Vec<StmtBox>,
-        return_type: Option<Vec<Type>>,
+        return_type: Option<Type>,
     },
     ImplDeclaration {
         name: Identifier,
@@ -265,50 +291,21 @@ impl fmt::Display for Type {
                 write!(f, "{:?}", expr)?;
                 write!(f, "?")
             }
-            Type::Custom { name, generics } => {
-                write!(f, "{}", name)?;
-                if let Some(generics) = generics {
-                    write!(f, "<")?;
-                    for (i, generic) in generics.iter().enumerate() {
-                        if i > 0 {
-                            write!(f, ", ")?;
-                        }
-                        write!(f, "{}", generic)?;
-                    }
-                    write!(f, ">")?;
-                }
+            Type::Struct { name } => {
+                write!(f, "struct {}", name)?;
                 Ok(())
             }
-            Type::Array(lit) => write!(f, "{}[]", lit),
+            Type::Interface { name } => {
+                write!(f, "interface {}", name)?;
+                Ok(())
+            }
+            Type::Custom { name } => {
+                write!(f, "custom {}", name)?;
+                Ok(())
+            }
+            Type::Array(lit, size) => write!(f, "{}[{}]", lit, size),
             Type::Unknown => write!(f, "unknown"),
             Type::Nil => write!(f, "nil"),
-        }
-    }
-}
-
-impl fmt::Display for CustomType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.name)?;
-        if let Some(fields) = &self.fields {
-            write!(f, "{{\n")?;
-            for (name, type_) in fields {
-                write!(f, "{}: {},\n", name, type_)?;
-            }
-            write!(f, "}}")
-        } else if let Some(methods) = &self.methods {
-            write!(f, "{{\n")?;
-            for (name, type_) in methods {
-                write!(f, "{}: {},\n", name, type_)?;
-            }
-            write!(f, "}}")
-        } else if let Some(variants) = &self.variants {
-            write!(f, "{{\n")?;
-            for variant in variants {
-                write!(f, "{},\n", variant)?;
-            }
-            write!(f, "}}")
-        } else {
-            Ok(())
         }
     }
 }
@@ -332,6 +329,12 @@ impl fmt::Display for Expr {
                     write!(f, "{},", arg)?;
                 }
                 write!(f, ")")
+            }
+            Expr::StructMember { is_public, name, type_ } => {
+                if *is_public {
+                    write!(f, "pub ")?;
+                }
+                write!(f, "{}: {}", name, type_)
             }
             Expr::ArrayInitialization { elements } => {
                 write!(f, "[")?;
@@ -569,12 +572,6 @@ impl fmt::Display for Stmt {
             }
             Stmt::Expression(expr) => {
                 write!(f, "{}", expr)
-            }
-            Stmt::StructMember { is_public, name, type_ } => {
-                if *is_public {
-                    write!(f, "pub ")?;
-                }
-                write!(f, "{}: {}", name, type_)
             }
         }
     }

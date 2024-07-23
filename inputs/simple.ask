@@ -24,15 +24,15 @@ fn main() -> int {
     return k;
 }
 
-struct test {
+struct Fantasy {
     pub name string
     pub color int
 }
 
 fn later(xk: int) -> int {
     let unused = "hello later";
-    let test = test{name: "davide", color: 42};
-    let result = fancy(xk, test.color);
+    let fan = Fantasy{name: "davide", color: 42};
+    let result = fancy(xk, fan.color);
 
     return -1;
 }

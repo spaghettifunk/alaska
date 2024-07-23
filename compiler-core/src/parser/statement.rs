@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{lexer::Token, parser::ast::Type, T};
 
 use super::{ast, error::ParseError, Parser, Result};
@@ -44,7 +46,7 @@ where
             self.consume(T![<]);
             generics = Some(Vec::new());
             loop {
-                let generic = self.parse_type(&None);
+                let generic = self.parse_type(&None, false, false);
                 generics.as_mut().unwrap().push(generic);
 
                 match self.peek() {
@@ -61,7 +63,7 @@ where
         }
 
         self.consume(T!['(']);
-        let mut parameters = Vec::new();
+        let mut parameters = HashMap::new();
         while !self.at(T![')']) {
             let parameter_ident = self.next().expect(
                 "Tried to parse function parameter, 
@@ -75,8 +77,8 @@ where
             );
             let parameter_name = self.text(parameter_ident).to_string();
             self.consume(T![:]);
-            let parameter_type = self.parse_type(&None);
-            parameters.push((parameter_name, parameter_type));
+            let parameter_type = self.parse_type(&None, false, false);
+            parameters.insert(parameter_name, parameter_type);
             if self.at(T![,]) {
                 self.consume(T![,]);
             }
@@ -84,53 +86,18 @@ where
         self.consume(T![')']);
 
         // return type
-        let mut return_types: Vec<Type> = Vec::new();
+        let mut return_type: Option<Type> = None;
         if self.at(T![->]) {
             self.consume(T![->]);
-            let mut multiple_types: bool = false;
-            if self.at(T!['(']) {
-                self.consume(T!['(']);
-                multiple_types = true;
-            }
-
-            return_types.push(self.parse_type(&None));
-
-            if self.at(T![,]) {
-                while self.at(T![,]) {
-                    self.consume(T![,]);
-                    return_types.push(self.parse_type(&None));
-                }
-            }
-
-            if multiple_types {
-                if !self.at(T![')']) {
-                    let line_col = self.line_column();
-                    return Err(ParseError::UnexpectedToken {
-                        found: self.peek(),
-                        expected: vec![T![')']],
-                        line: line_col.0,
-                        column: line_col.1,
-                    });
-                } else {
-                    self.consume(T![')']);
-                }
-            }
+            return_type = Some(self.parse_type(&None, false, false));
         }
-        if return_types.is_empty() {
-            Ok(ast::Stmt::InterfaceFunctionSignature {
-                name: fn_name,
-                generics,
-                parameters: if parameters.len() > 0 { Some(parameters) } else { None },
-                return_type: None,
-            })
-        } else {
-            Ok(ast::Stmt::InterfaceFunctionSignature {
-                name: fn_name,
-                generics,
-                parameters: if parameters.len() > 0 { Some(parameters) } else { None },
-                return_type: Some(return_types),
-            })
-        }
+
+        Ok(ast::Stmt::InterfaceFunctionSignature {
+            name: fn_name,
+            generics,
+            parameters: if parameters.len() > 0 { Some(parameters) } else { None },
+            return_type,
+        })
     }
 
     fn parse_fn(&mut self, is_public: bool) -> Result<ast::Stmt> {
@@ -150,7 +117,7 @@ where
             self.consume(T![<]);
             generics = Some(Vec::new());
             loop {
-                let generic = self.parse_type(&None);
+                let generic = self.parse_type(&None, false, false);
                 generics.as_mut().unwrap().push(generic);
 
                 match self.peek() {
@@ -182,7 +149,7 @@ where
             );
             let parameter_name = self.text(parameter_ident).to_string();
             self.consume(T![:]);
-            let parameter_type = self.parse_type(&None);
+            let parameter_type = self.parse_type(&None, false, false);
             parameters.push((parameter_name, parameter_type));
             if self.at(T![,]) {
                 self.consume(T![,]);
@@ -191,37 +158,11 @@ where
         self.consume(T![')']);
 
         // parse the return type if any
-        let mut return_types = None;
+        let mut return_types: Option<Type> = None;
         if self.at(T![->]) {
             self.consume(T![->]);
-            return_types = Some(Vec::new());
-            let mut multiple_types: bool = false;
-            if self.at(T!['(']) {
-                self.consume(T!['(']);
-                multiple_types = true;
-            }
-
-            return_types.as_mut().unwrap().push(self.parse_type(&None));
-            if self.at(T![,]) {
-                while self.at(T![,]) {
-                    self.consume(T![,]);
-                    return_types.as_mut().unwrap().push(self.parse_type(&None));
-                }
-            }
-
-            if multiple_types {
-                if !self.at(T![')']) {
-                    let line_col = self.line_column();
-                    return Err(ParseError::UnexpectedToken {
-                        found: self.peek(),
-                        expected: vec![T![')']],
-                        line: line_col.0,
-                        column: line_col.1,
-                    });
-                } else {
-                    self.consume(T![')']);
-                }
-            }
+            let typ = self.parse_type(&None, false, false);
+            return_types = Some(typ);
         }
 
         assert!(self.at(T!['{']), "Expected a block after function header");
@@ -260,7 +201,7 @@ where
         );
         let interface_name = self.text(ident).to_string();
 
-        let interface_type = self.parse_type(&Some(interface_name.clone()));
+        let interface_type = self.parse_type(&Some(interface_name.clone()), false, true);
 
         let mut methods = Vec::new();
 
@@ -312,7 +253,7 @@ where
         );
 
         let struct_name = self.text(ident).to_string();
-        let struct_type = self.parse_type(&Some(struct_name.clone()));
+        let struct_type = self.parse_type(&Some(struct_name.clone()), true, false);
 
         let mut members = Vec::new();
 
@@ -334,8 +275,8 @@ where
                 member_ident.kind
             );
             let member_name = self.text(member_ident).to_string();
-            let member_type = self.parse_type(&None);
-            members.push(Box::new(ast::Stmt::StructMember {
+            let member_type = self.parse_type(&None, false, false);
+            members.push(Box::new(ast::Expr::StructMember {
                 is_public,
                 name: member_name,
                 type_: member_type,
@@ -389,14 +330,11 @@ where
             is_public,
             name: name.clone(),
             members,
-            type_: ast::Type::Custom {
-                name: name.clone(),
-                generics: None,
-            },
+            type_: ast::Type::Enum,
         })
     }
 
-    fn parse_type(&mut self, opt_name: &Option<String>) -> ast::Type {
+    fn parse_type(&mut self, opt_name: &Option<String>, is_struct: bool, is_interface: bool) -> ast::Type {
         let mut type_name: Option<String> = opt_name.to_owned();
         if type_name.is_none() {
             let ident = self.next().expect("Tried to parse type, but there were no more tokens");
@@ -413,11 +351,11 @@ where
         }
 
         // check if the type is a generic type
+        let mut generics = Vec::new();
         if self.at(T![<]) {
             self.consume(T![<]);
-            let mut generics = Vec::new();
             loop {
-                let generic = self.parse_type(&None);
+                let generic = self.parse_type(&None, is_struct, is_interface);
                 generics.push(generic);
 
                 match self.peek() {
@@ -431,22 +369,36 @@ where
                     found => panic!("Expected `,` or `>` after generic type, found `{}` instead", found),
                 }
             }
-            ast::Type::Custom {
-                name: type_name.clone().unwrap(),
-                generics: if generics.len() > 0 { Some(generics) } else { None },
-            }
         // check if the type is an array
         } else if self.at(T!['[']) {
             // array declaration
             self.consume(T!['[']);
             self.consume(T![']']);
             // we don't know the type yet. It depends on the elements
-            ast::Type::Array(Box::new(ast::Type::Unknown))
-        } else {
-            // just a name of a type - probably coming from a struct or elsewhere
-            ast::Type::Custom {
+            return ast::Type::Array(Box::new(ast::Type::Unknown), 0);
+        }
+        // just a name of a type - probably coming from a struct or elsewhere
+        if is_struct {
+            return ast::Type::Struct {
                 name: type_name.clone().unwrap(),
-                generics: None,
+            };
+        }
+        if is_interface {
+            return ast::Type::Interface {
+                name: type_name.clone().unwrap(),
+            };
+        }
+
+        // This is the case where I know the name of the type (like an interface, enum, struct, etc)
+        // but I can't know that it's of
+        match ast::Type::from_string_to_type(type_name.clone().unwrap()) {
+            ast::Type::Unknown => {
+                return ast::Type::Custom {
+                    name: type_name.clone().unwrap(),
+                }
+            }
+            typ => {
+                return typ;
             }
         }
     }
@@ -713,7 +665,7 @@ where
             self.consume(T![<]);
             generics = Some(Vec::new());
             loop {
-                let generic = self.parse_type(&None);
+                let generic = self.parse_type(&None, false, false);
                 generics.as_mut().unwrap().push(generic);
 
                 match self.peek() {
@@ -742,12 +694,12 @@ where
                 multiple_types = true;
             }
 
-            interfaces.as_mut().unwrap().push(self.parse_type(&None));
+            interfaces.as_mut().unwrap().push(self.parse_type(&None, false, true));
 
             if self.at(T![,]) {
                 while self.at(T![,]) {
                     self.consume(T![,]);
-                    interfaces.as_mut().unwrap().push(self.parse_type(&None));
+                    interfaces.as_mut().unwrap().push(self.parse_type(&None, false, true));
                 }
             }
 
@@ -799,7 +751,7 @@ where
 
         self.consume(T![:]);
 
-        let type_ = self.parse_type(&None);
+        let type_ = self.parse_type(&None, false, false);
 
         self.consume(T![=]);
         let value = self.parse_expression();
@@ -1042,6 +994,7 @@ mod tests {
     use std::{rc::Rc, sync::Arc, vec};
 
     use crate::{
+        hashmap,
         lexer::{Lexer, TokenKind},
         parser::{ast, Parser},
         T,
@@ -1499,24 +1452,11 @@ mod tests {
                     bar_type,
                     &ast::Type::Custom {
                         name: "Bar".to_string(),
-                        generics: Some(vec![
-                            ast::Type::Custom {
-                                name: "Baz".to_string(),
-                                generics: Some(vec![ast::Type::Custom {
-                                    name: "T".to_string(),
-                                    generics: None
-                                }])
-                            },
-                            ast::Type::Custom {
-                                name: "U".to_string(),
-                                generics: None
-                            }
-                        ])
                     }
                 );
 
                 assert_eq!(body.len(), 3);
-                assert_eq!(return_type, Some(vec![ast::Type::String]));
+                assert_eq!(return_type, Some(ast::Type::String));
             }
             _ => unreachable!(),
         };
@@ -1554,23 +1494,13 @@ mod tests {
                     type_,
                     ast::Type::Custom {
                         name: "Foo".to_string(),
-                        generics: Some(vec![
-                            ast::Type::Custom {
-                                name: "T".to_string(),
-                                generics: None
-                            },
-                            ast::Type::Custom {
-                                name: "U".to_string(),
-                                generics: None
-                            },
-                        ])
                     }
                 );
                 assert_eq!(members.len(), 2);
                 let member = &members[0];
 
                 match member.as_ref() {
-                    ast::Stmt::StructMember { is_public, name, type_ } => {
+                    ast::Expr::StructMember { is_public, name, type_ } => {
                         assert_eq!(*is_public, false);
                         assert_eq!(name, "x");
                         assert_eq!(type_, &ast::Type::String);
@@ -1580,26 +1510,13 @@ mod tests {
 
                 let member2 = &members[1];
                 match member2.as_ref() {
-                    ast::Stmt::StructMember { is_public, name, type_ } => {
+                    ast::Expr::StructMember { is_public, name, type_ } => {
                         assert_eq!(*is_public, false);
                         assert_eq!(name, "bar");
                         assert_eq!(
                             type_,
                             &ast::Type::Custom {
                                 name: "Bar".to_string(),
-                                generics: Some(vec![
-                                    ast::Type::Custom {
-                                        name: "Baz".to_string(),
-                                        generics: Some(vec![ast::Type::Custom {
-                                            name: "T".to_string(),
-                                            generics: None
-                                        }])
-                                    },
-                                    ast::Type::Custom {
-                                        name: "U".to_string(),
-                                        generics: None
-                                    }
-                                ])
                             }
                         );
                     }
@@ -1681,7 +1598,6 @@ mod tests {
                                 type_,
                                 ast::Type::Custom {
                                     name: "Foo".to_string(),
-                                    generics: None
                                 }
                             );
                         }
@@ -1780,7 +1696,6 @@ mod tests {
                 is_public: false,
                 type_: ast::Type::Custom {
                     name: "Foo".to_string(),
-                    generics: None
                 },
                 name: "Foo".to_string(),
                 members: vec!["Bar".to_string(), "Baz".to_string(), "Qux".to_string()]
@@ -1812,20 +1727,19 @@ mod tests {
                 name: "Foo".to_string(),
                 type_: ast::Type::Custom {
                     name: "Foo".to_string(),
-                    generics: None
                 },
                 methods: vec![
                     Box::new(ast::Stmt::InterfaceFunctionSignature {
                         name: "bar".to_string(),
                         generics: None,
-                        parameters: Some(vec![("x".to_string(), ast::Type::Int)]),
-                        return_type: Some(vec![ast::Type::Int])
+                        parameters: Some(hashmap!["x".to_string() => ast::Type::Int]),
+                        return_type: Some(ast::Type::Int)
                     }),
                     Box::new(ast::Stmt::InterfaceFunctionSignature {
                         name: "baz".to_string(),
                         generics: None,
-                        parameters: Some(vec![("y".to_string(), ast::Type::String,)]),
-                        return_type: Some(vec![ast::Type::String])
+                        parameters: Some(hashmap!["y".to_string() => ast::Type::String]),
+                        return_type: Some(ast::Type::String)
                     })
                 ]
             }

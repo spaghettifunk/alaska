@@ -1,4 +1,3 @@
-use std::result;
 use std::{fs, path::Path};
 
 mod args;

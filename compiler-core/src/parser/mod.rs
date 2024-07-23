@@ -3,6 +3,7 @@ use std::iter::Peekable;
 pub mod ast;
 mod error;
 mod expressions;
+mod macros;
 mod statement;
 
 use crate::{
