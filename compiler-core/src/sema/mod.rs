@@ -1,7 +1,7 @@
 mod sym;
 
 use core::fmt;
-use std::{borrow::BorrowMut, collections::HashMap};
+use std::collections::HashMap;
 
 use uuid::Uuid;
 
@@ -571,7 +571,7 @@ impl SemanticAnalyzer {
                 is_public,
                 type_: type_.clone(),
                 name: name.clone(),
-                memebers: if members_symbol.len() > 0 {
+                members: if members_symbol.len() > 0 {
                     Some(members_symbol)
                 } else {
                     None
@@ -1050,7 +1050,7 @@ impl SemanticAnalyzer {
                             is_public: false,
                             name: name.clone(),
                             type_: Type::Struct { name: name.clone() },
-                            memebers: if struct_member_symbols.len() > 0 {
+                            members: if struct_member_symbols.len() > 0 {
                                 Some(struct_member_symbols)
                             } else {
                                 None
@@ -1218,7 +1218,8 @@ impl SemanticAnalyzer {
                         if let Some(ret_type) = func_symbol.return_type() {
                             Ok(Some(ret_type.clone()))
                         } else {
-                            Ok(Some(Type::Unknown))
+                            // no return type means void
+                            Ok(Some(Type::Void))
                         }
                     }
                     None => {
@@ -1239,7 +1240,10 @@ impl SemanticAnalyzer {
                     elem_types.push(typ.unwrap());
                 }
                 if elem_types.len() == 0 {
-                    return Ok(Some(Type::Array(Box::new(Type::Unknown), 0)));
+                    return Ok(Some(Type::Array {
+                        type_: Box::new(Type::Unknown),
+                        size: 0,
+                    }));
                 }
                 // the first element determines the type of the array
                 let typ = elem_types[0].clone();
@@ -1248,7 +1252,10 @@ impl SemanticAnalyzer {
                         return Err(format!("Expected array of type {}, got {}", typ, elem));
                     }
                 }
-                Ok(Some(Type::Array(Box::new(typ), elements.len())))
+                Ok(Some(Type::Array {
+                    type_: Box::new(typ),
+                    size: elements.len(),
+                }))
             }
             Expr::ArrayAccess { name, index } => match self.type_check_expr(context, *index.clone())? {
                 Some(index_typ) => {
@@ -1259,12 +1266,17 @@ impl SemanticAnalyzer {
                     let symbol_name = format!("let.{}", name);
                     match context.lookup(&symbol_name) {
                         Some(array_symbol) => {
-                            let typ = array_symbol.type_().expect("Variable type not found");
-                            if let Type::Array(inner, 0) = typ {
-                                Ok(Some(*inner.clone()))
-                            } else {
-                                return Err(format!("Expected array, got {}", typ));
+                            let typ = array_symbol
+                                .type_()
+                                .expect(format!("variable `{}` type not found", name).as_str());
+
+                            if typ.variant_eq(&Type::Array {
+                                type_: Box::new(Type::Unknown),
+                                size: 0,
+                            }) {
+                                return Ok(typ.get_array_inner_type());
                             }
+                            Err(format!("expected array type, got {}", typ))
                         }
                         None => {
                             return Err(format!("Variable {} not found", name));
@@ -1320,6 +1332,312 @@ impl SemanticAnalyzer {
             }
             _ => Ok(None),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use crate::{lexer::TokenKind, parser::ast};
+
+    use super::*;
+
+    #[test]
+    fn test_type_check_expr_integer_literal() {
+        let mut analyzer = SemanticAnalyzer::new();
+        let context = Context::new();
+        let expr = Expr::IntegerLiteral(42);
+        let result = analyzer.type_check_expr(&context, expr);
+        assert_eq!(result, Ok(Some(Type::Int)));
+    }
+
+    #[test]
+    fn test_type_check_expr_float_literal() {
+        let mut analyzer = SemanticAnalyzer::new();
+        let context = Context::new();
+        let expr = Expr::FloatLiteral(3.14);
+        let result = analyzer.type_check_expr(&context, expr);
+        assert_eq!(result, Ok(Some(Type::Float)));
+    }
+
+    #[test]
+    fn test_type_check_expr_string_literal() {
+        let mut analyzer = SemanticAnalyzer::new();
+        let context = Context::new();
+        let expr = Expr::StringLiteral("hello".to_string());
+        let result = analyzer.type_check_expr(&context, expr);
+        assert_eq!(result, Ok(Some(Type::String)));
+    }
+
+    #[test]
+    fn test_type_check_expr_bool_literal() {
+        let mut analyzer = SemanticAnalyzer::new();
+        let context = Context::new();
+        let expr = Expr::BoolLiteral(true);
+        let result = analyzer.type_check_expr(&context, expr);
+        assert_eq!(result, Ok(Some(Type::Bool)));
+    }
+
+    #[test]
+    fn test_type_check_expr_char_literal() {
+        let mut analyzer = SemanticAnalyzer::new();
+        let context = Context::new();
+        let expr = Expr::CharLiteral('a');
+        let result = analyzer.type_check_expr(&context, expr);
+        assert_eq!(result, Ok(Some(Type::Char)));
+    }
+
+    #[test]
+    fn test_type_check_expr_nil() {
+        let mut analyzer = SemanticAnalyzer::new();
+        let context = Context::new();
+        let expr = Expr::Nil;
+        let result = analyzer.type_check_expr(&context, expr);
+        assert_eq!(result, Ok(Some(Type::Optional(Box::new(Type::Nil)))));
+    }
+
+    #[test]
+    fn test_type_check_expr_variable() {
+        let mut analyzer = SemanticAnalyzer::new();
+        let mut context = Context::new();
+        context.enter_scope("pkg.test".to_string());
+        context.current_scope_mut().unwrap().add_symbol(
+            "let.x".to_string(),
+            Symbol::Identifier {
+                name: "x".to_string(),
+                type_: Type::Int,
+                value: String::new(),
+            },
+        );
+        let expr = Expr::Variable("x".to_string());
+        let result = analyzer.type_check_expr(&context, expr);
+        assert_eq!(result, Ok(Some(Type::Int)));
+        context.exit_scope();
+    }
+
+    #[test]
+    fn test_type_check_expr_prefix_op() {
+        let mut analyzer = SemanticAnalyzer::new();
+        let context = Context::new();
+        let expr = Expr::PrefixOp {
+            op: TokenKind::Minus,
+            expr: Box::new(Expr::IntegerLiteral(10)),
+        };
+        let result = analyzer.type_check_expr(&context, expr);
+        assert_eq!(result, Ok(Some(Type::Int)));
+    }
+
+    #[test]
+    fn test_type_check_expr_binary_op() {
+        let mut analyzer = SemanticAnalyzer::new();
+        let context = Context::new();
+        let expr = Expr::BinaryOp {
+            op: TokenKind::Plus,
+            lhs: Box::new(Expr::IntegerLiteral(5)),
+            rhs: Box::new(Expr::IntegerLiteral(3)),
+        };
+        let result = analyzer.type_check_expr(&context, expr);
+        assert_eq!(result, Ok(Some(Type::Int)));
+    }
+
+    #[test]
+    fn test_type_check_expr_postfix_op() {
+        let mut analyzer = SemanticAnalyzer::new();
+        let mut context = Context::new();
+        context.enter_scope("pkg.test".to_string());
+        context.current_scope_mut().unwrap().add_symbol(
+            "let.x".to_string(),
+            Symbol::Identifier {
+                name: "x".to_string(),
+                type_: Type::Int,
+                value: String::new(),
+            },
+        );
+        let expr = Expr::PostfixOp {
+            op: TokenKind::Increment,
+            expr: Box::new(Expr::Variable("x".to_string())),
+        };
+        let result = analyzer.type_check_expr(&context, expr);
+        assert_eq!(result, Ok(Some(Type::Int)));
+        context.exit_scope();
+    }
+
+    #[test]
+    fn test_type_check_expr_function_call_void() {
+        let mut analyzer = SemanticAnalyzer::new();
+        let mut context = Context::new();
+        context.enter_scope("pkg.test".to_string());
+
+        let symbol_table = context.current_scope_mut();
+        symbol_table.unwrap().add_symbol(
+            "fn.add".to_string(),
+            Symbol::FunctionCall {
+                name: "add".to_string(),
+                arguments: Some(vec![
+                    Symbol::Identifier {
+                        name: "x".to_string(),
+                        type_: Type::Int,
+                        value: String::new(),
+                    },
+                    Symbol::Identifier {
+                        name: "y".to_string(),
+                        type_: Type::Int,
+                        value: String::new(),
+                    },
+                ]),
+            },
+        );
+        let expr = Expr::FunctionCall {
+            name: "add".to_string(),
+            args: vec![Box::new(Expr::IntegerLiteral(5)), Box::new(Expr::IntegerLiteral(3))],
+        };
+        let result = analyzer.type_check_expr(&context, expr);
+        assert_eq!(result, Ok(Some(Type::Void)));
+
+        context.exit_scope();
+    }
+
+    #[test]
+    fn test_type_check_expr_array_initialization() {
+        let mut analyzer = SemanticAnalyzer::new();
+        let mut context = Context::new();
+        context.enter_scope("pkg.test".to_string());
+
+        let expr = Expr::ArrayInitialization {
+            elements: vec![
+                Box::new(Expr::IntegerLiteral(1)),
+                Box::new(Expr::IntegerLiteral(2)),
+                Box::new(Expr::IntegerLiteral(3)),
+            ],
+        };
+        let result = analyzer.type_check_expr(&context, expr);
+        assert_eq!(
+            result,
+            Ok(Some(Type::Array {
+                type_: Box::new(Type::Int),
+                size: 3
+            }))
+        );
+
+        context.exit_scope();
+    }
+
+    #[test]
+    fn test_type_check_expr_array_access() {
+        let mut analyzer = SemanticAnalyzer::new();
+        let mut context = Context::new();
+        context.enter_scope("pkg.test".to_string());
+
+        context.current_scope_mut().unwrap().add_symbol(
+            "let.arr".to_string(),
+            Symbol::Identifier {
+                name: "arr".to_string(),
+                type_: Type::Array {
+                    type_: Box::new(Type::Int),
+                    size: 3,
+                },
+                value: String::new(),
+            },
+        );
+        let expr = Expr::ArrayAccess {
+            name: "arr".to_string(),
+            index: Box::new(Expr::IntegerLiteral(1)),
+        };
+        let result = analyzer.type_check_expr(&context, expr);
+        assert_eq!(result, Ok(Some(Type::Int)));
+
+        context.exit_scope();
+    }
+
+    #[test]
+    fn test_type_check_expr_struct_access() {
+        let mut analyzer = SemanticAnalyzer::new();
+        let mut context = Context::new();
+        context.enter_scope("pkg.test".to_string());
+        context.current_scope_mut().unwrap().add_symbol(
+            "let.person".to_string(),
+            Symbol::Identifier {
+                name: "person".to_string(),
+                type_: Type::Struct {
+                    name: "Person".to_string(),
+                },
+                value: String::from("davide"),
+            },
+        );
+        let expr = Expr::StructAccess {
+            name: "person".to_string(),
+            field: Box::new(ast::Expr::StructMember {
+                is_public: false,
+                name: "name".to_string(),
+                type_: Type::String,
+            }),
+        };
+        let result = analyzer.type_check_expr(&context, expr);
+        assert_eq!(result, Ok(Some(Type::String)));
+        context.exit_scope();
+    }
+
+    #[test]
+    fn test_type_check_expr_struct_instantiation() {
+        let mut analyzer = SemanticAnalyzer::new();
+        let mut context = Context::new();
+        context.enter_scope("pkg.test".to_string());
+        context.current_scope_mut().unwrap().add_symbol(
+            "struct.Person".to_string(),
+            Symbol::Struct {
+                is_public: false,
+                name: "Person".to_string(),
+                type_: Type::Struct {
+                    name: "Person".to_string(),
+                },
+                members: None,
+            },
+        );
+        let expr = Expr::StructInstantiation {
+            name: "Person".to_string(),
+            members: vec![
+                ("name".to_string(), Box::new(Expr::StringLiteral("John".to_string()))),
+                ("age".to_string(), Box::new(Expr::IntegerLiteral(30))),
+            ],
+        };
+        let result = analyzer.type_check_expr(&context, expr);
+        assert_eq!(
+            result,
+            Ok(Some(Type::Struct {
+                name: "Person".to_string()
+            }))
+        );
+        context.exit_scope();
+    }
+
+    #[test]
+    fn test_type_check_expr_struct_member() {
+        let mut analyzer = SemanticAnalyzer::new();
+        let mut context = Context::new();
+        context.enter_scope("pkg.test".to_string());
+        let expr = Expr::StructMember {
+            is_public: false,
+            type_: Type::Int,
+            name: "age".to_string(),
+        };
+        let result = analyzer.type_check_expr(&context, expr);
+        assert_eq!(result, Ok(Some(Type::Int)));
+        context.exit_scope();
+    }
+
+    #[test]
+    fn test_type_check_expr_assignment() {
+        let mut analyzer = SemanticAnalyzer::new();
+        let mut context = Context::new();
+        context.enter_scope("pkg.test".to_string());
+        let expr = Expr::Assignment {
+            type_: Box::new(Type::Int),
+            name: "x".to_string(),
+            value: Box::new(Expr::IntegerLiteral(10)),
+        };
+        let result = analyzer.type_check_expr(&context, expr);
+        assert_eq!(result, Ok(Some(Type::Int)));
+        context.exit_scope();
     }
 }
 

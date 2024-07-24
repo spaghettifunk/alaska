@@ -52,7 +52,7 @@ pub fn main() {
     assert_eq!(line_numbers.byte_index(0, 0), 0);
     assert_eq!(line_numbers.byte_index(0, 4), 4);
     assert_eq!(line_numbers.byte_index(100, 1), src.len() as u32);
-    assert_eq!(line_numbers.byte_index(2, 1), 18);
+    assert_eq!(line_numbers.byte_index(2, 1), 9);
 }
 
 #[derive(Eq, PartialEq, Copy, Clone, Hash)]

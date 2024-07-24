@@ -1,4 +1,3 @@
-use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -20,7 +19,7 @@ pub enum Symbol {
         is_public: bool,
         name: String,
         type_: Type,
-        memebers: Option<Vec<Symbol>>,
+        members: Option<Vec<Symbol>>,
     },
     StructMember {
         is_public: bool,
@@ -149,8 +148,9 @@ impl SymbolInfo for Symbol {
         match self {
             Symbol::InterfaceMethod { parameters, .. } => parameters.clone(),
             Symbol::Function { parameters, .. } => parameters.clone(),
+            Symbol::FunctionCall { arguments, .. } => arguments.clone(),
             Symbol::Enum { members, .. } => members.clone(),
-            Symbol::Struct { memebers, .. } => memebers.clone(),
+            Symbol::Struct { members: memebers, .. } => memebers.clone(),
             found => {
                 print!("Found: {:?}", found);
                 None
@@ -338,11 +338,17 @@ impl Context {
     pub fn enter_scope(&mut self, name: String) {
         let new_table = SymbolTable::new(name.clone());
         self.scopes.push(new_table);
+        // If we have only one scope, we don't need to increment the index
+        if self.scopes.len() == 1 {
+            return;
+        }
         self.current_scope_index += 1;
     }
 
     pub fn exit_scope(&mut self) -> Option<SymbolTable> {
-        self.current_scope_index -= 1;
+        if self.current_scope_index > 0 {
+            self.current_scope_index -= 1;
+        }
         self.current_scope().cloned()
     }
 

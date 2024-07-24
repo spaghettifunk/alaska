@@ -14,12 +14,13 @@ pub enum Type {
     Bool,
     Enum,
     String,
-    Array(TypeBox, usize),
+    Array { type_: TypeBox, size: usize },
     Struct { name: String },
     Interface { name: String },
     Custom { name: String },
     Optional(TypeBox), // Represents an optional type
     Nil,
+    Void,
     Unknown,
 }
 
@@ -32,7 +33,7 @@ impl Type {
             (Type::Bool, Type::Bool) => true,
             (Type::Enum, Type::Enum) => true,
             (Type::String, Type::String) => true,
-            (Type::Array(lit1, _), Type::Array(lit2, _)) => lit1.is_equal(lit2),
+            (Type::Array { type_: lit1, size: _ }, Type::Array { type_: lit2, size: _ }) => lit1.is_equal(lit2),
             (Type::Struct { name: name1 }, Type::Struct { name: name2 }) => name1 == name2,
             (Type::Interface { name: name1 }, Type::Interface { name: name2 }) => name1 == name2,
             (Type::Optional(lit1), Type::Optional(lit2)) => lit1.is_equal(lit2),
@@ -68,6 +69,13 @@ impl Type {
             Type::Struct { name } => Some(name.clone()),
             Type::Interface { name } => Some(name.clone()),
             Type::Custom { name } => Some(name.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn get_array_inner_type(&self) -> Option<Type> {
+        match self {
+            Type::Array { type_, .. } => Some(*type_.clone()),
             _ => None,
         }
     }
@@ -352,9 +360,10 @@ impl fmt::Display for Type {
                 write!(f, "custom {}", name)?;
                 Ok(())
             }
-            Type::Array(lit, size) => write!(f, "{}[{}]", lit, size),
+            Type::Array { type_, size } => write!(f, "{}[{}]", type_, size),
             Type::Unknown => write!(f, "unknown"),
             Type::Nil => write!(f, "nil"),
+            Type::Void => write!(f, "void"),
         }
     }
 }

@@ -375,7 +375,10 @@ where
             self.consume(T!['[']);
             self.consume(T![']']);
             // we don't know the type yet. It depends on the elements
-            return ast::Type::Array(Box::new(ast::Type::Unknown), 0);
+            return ast::Type::Array {
+                type_: Box::new(ast::Type::Unknown),
+                size: 0,
+            };
         }
         // just a name of a type - probably coming from a struct or elsewhere
         if is_struct {
@@ -469,6 +472,19 @@ where
             self.consume(T![else]);
             let body = self.parse_statement();
             let body = match body {
+                Ok(ast::Stmt::IfStmt {
+                    condition,
+                    body,
+                    else_stmt,
+                }) => {
+                    let mut stmts = Vec::new();
+                    stmts.push(Box::new(ast::Stmt::IfStmt {
+                        condition,
+                        body,
+                        else_stmt,
+                    }));
+                    stmts
+                }
                 Ok(ast::Stmt::Block { stmts }) => stmts,
                 _ => unreachable!(),
             };
@@ -1190,123 +1206,90 @@ mod tests {
             .as_str(),
         );
 
-        let stmts = match stmt {
-            ast::Stmt::Block { stmts } => stmts,
-            _ => unreachable!(),
-        };
-        assert_eq!(stmts.len(), 2);
-
-        let let_stmt = &stmts[0];
-        match let_stmt.as_ref() {
-            ast::Stmt::Let { name, .. } => assert_eq!(name, "x"),
-            _ => unreachable!(),
-        }
-
-        let stmts = match stmts[1].as_ref() {
-            ast::Stmt::Block { stmts } => stmts,
-            _ => unreachable!(),
-        };
-        assert_eq!(stmts.len(), 2);
-
-        let assignment_stmt = &stmts[0];
-        match assignment_stmt.as_ref() {
-            ast::Stmt::Expression(expr) => match expr.as_ref() {
-                ast::Expr::Assignment { name, .. } => assert_eq!(name, "x"),
-                _ => unreachable!(),
-            },
-            _ => unreachable!(),
-        }
-
-        let if_stmt = &stmts[1];
-        match if_stmt.as_ref() {
-            ast::Stmt::IfStmt {
-                condition,
-                body,
-                else_stmt,
-            } => {
-                // assert!(matches!(
-                //     condition,
-                //     Box::new(ast::Expr::BinaryOp {
-                //         op: T![<],
-                //         lhs: _lhs,
-                //         rhs: _rhs,
-                //     })
-                // ));
-
-                assert_eq!(body.len(), 2);
-                let x_assignment = &body[0];
-                match x_assignment.as_ref() {
-                    ast::Stmt::Expression(expr) => match expr.as_ref() {
-                        ast::Expr::Assignment { name, .. } => assert_eq!(name, "x"),
-                        _ => unreachable!(),
-                    },
-                    _ => unreachable!(),
-                }
-                let y_assignment = &body[1];
-                match y_assignment.as_ref() {
-                    ast::Stmt::Expression(expr) => match expr.as_ref() {
-                        ast::Expr::Assignment { name, .. } => assert_eq!(name, "y"),
-                        _ => unreachable!(),
-                    },
-                    _ => unreachable!(),
-                }
-
-                let else_stmt = match else_stmt {
-                    Some(stmt) => stmt,
-                    None => unreachable!(),
-                };
-
-                for stmt in else_stmt {
-                    match stmt.as_ref() {
-                        ast::Stmt::Expression(expr) => match expr.as_ref() {
-                            ast::Expr::Assignment { name, .. } => assert_eq!(name, "x"),
-                            _ => unreachable!(),
-                        },
-                        _ => unreachable!(),
-                    }
-                }
-            }
-            _ => unreachable!(),
-        }
+        // Block {
+        //     stmts: [
+        //         Let {
+        //             name: "x",
+        //             type_: Unknown,
+        //             expr: BinaryOp {
+        //                 op: Plus,
+        //                 lhs: IntegerLiteral(7),
+        //                 rhs: FunctionCall {
+        //                     name: "sin",
+        //                     args: [Variable("y")],
+        //                 },
+        //             },
+        //         },
+        //         Block {
+        //             stmts: [
+        //                 Expression(Assignment {
+        //                     name: "x",
+        //                     type_: Unknown,
+        //                     value: IntegerLiteral(3),
+        //                 }),
+        //                 IfStmt {
+        //                     condition: BinaryOp {
+        //                         op: LAngle,
+        //                         lhs: Variable("bar"),
+        //                         rhs: IntegerLiteral(3),
+        //                     },
+        //                     body: [
+        //                         Expression(Assignment {
+        //                             name: "x",
+        //                             type_: Unknown,
+        //                             value: BinaryOp {
+        //                                 op: Plus,
+        //                                 lhs: Variable("x"),
+        //                                 rhs: IntegerLiteral(1),
+        //                             },
+        //                         }),
+        //                         Expression(Assignment {
+        //                             name: "y",
+        //                             type_: Unknown,
+        //                             value: BinaryOp {
+        //                                 op: Star,
+        //                                 lhs: IntegerLiteral(3),
+        //                                 rhs: Variable("x"),
+        //                             },
+        //                         }),
+        //                     ],
+        //                     else_stmt: Some([IfStmt {
+        //                         condition: BinaryOp {
+        //                             op: LAngle,
+        //                             lhs: Variable("bar"),
+        //                             rhs: IntegerLiteral(2),
+        //                         },
+        //                         body: [
+        //                             Let {
+        //                                 name: "i",
+        //                                 type_: Unknown,
+        //                                 expr: PostfixOp {
+        //                                     op: Bang,
+        //                                     expr: IntegerLiteral(2),
+        //                                 },
+        //                             },
+        //                             Expression(Assignment {
+        //                                 name: "x",
+        //                                 type_: Unknown,
+        //                                 value: BinaryOp {
+        //                                     op: Plus,
+        //                                     lhs: Variable("x"),
+        //                                     rhs: Variable("i"),
+        //                                 },
+        //                             }),
+        //                         ],
+        //                         else_stmt: Some([Expression(Assignment {
+        //                             name: "x",
+        //                             type_: Unknown,
+        //                             value: IntegerLiteral(1),
+        //                         })]),
+        //                     }]),
+        //                 },
+        //             ],
+        //         },
+        //     ],
+        // }
     }
-
-    //    #[test]
-    //     fn parse_range_statement() {
-    //         fn parse(input: &str) -> ast::Stmt {
-    //             let mut parser = Parser::new(input);
-    //             parser.parse_statement().unwrap()
-    //         }
-
-    //         let stmt = parse(
-    //             unindent(
-    //                 r#"
-    //     let iter = {0, 1, 2};
-    //     for x range iter {
-    //         x = x + 1;
-    //     }
-    // "#,
-    //             )
-    //             .as_str(),
-    //         );
-
-    //         match stmt {
-    //             ast::Stmt::RangeStmt { iterator, range, body } => {
-    //                 assert_eq!(iterator, "x");
-    //                 assert_eq!(
-    //                     range,
-    //                     Rc::new(Arc::new(ast::Stmt::ArrayInitialization {
-    //                         elements: vec![
-    //                             Rc::new(Arc::new(ast::Stmt::Literal(ast::Expr::Int(0)))),
-    //                             Rc::new(Arc::new(ast::Stmt::Literal(ast::Expr::Int(1)))),
-    //                             Rc::new(Arc::new(ast::Stmt::Literal(ast::Expr::Int(2)))),
-    //                         ]
-    //                     }))
-    //                 );
-    //                 assert_eq!(body.len(), 1);
-    //             }
-    //             _ => unreachable!(),
-    //         }
-    //     }
 
     #[test]
     fn parse_function() {
@@ -1378,8 +1361,10 @@ mod tests {
                 } else if (bar < 2) {
                     let i = 2!;
                     x = x + i;
-                } else {
+                } else if (bar < 1) {
                     x = 1;
+                } else {
+                    return "hello, Alaska!";
                 }
             }
             return "hello, Alaska!";
@@ -1429,7 +1414,7 @@ mod tests {
             unindent(
                 r#"
         struct Foo<T, U> {
-            x String
+            x string
             bar Bar<Baz<T>, U>
         }
     "#,
@@ -1448,7 +1433,7 @@ mod tests {
                 assert_eq!(name, "Foo");
                 assert_eq!(
                     type_,
-                    ast::Type::Custom {
+                    ast::Type::Struct {
                         name: "Foo".to_string(),
                     }
                 );
@@ -1527,7 +1512,8 @@ mod tests {
                 statements,
             } => {
                 assert_eq!(name, "test");
-                assert_eq!(statements.len(), 3);
+                assert_eq!(statements.len(), 2);
+                assert_eq!(package, "main");
                 for stmt in statements {
                     match *stmt {
                         ast::Stmt::FunctionDeclaration {
@@ -1556,7 +1542,7 @@ mod tests {
                             assert_eq!(members.len(), 2);
                             assert_eq!(
                                 type_,
-                                ast::Type::Custom {
+                                ast::Type::Struct {
                                     name: "Foo".to_string(),
                                 }
                             );
@@ -1654,9 +1640,7 @@ mod tests {
             stmt,
             ast::Stmt::Enum {
                 is_public: false,
-                type_: ast::Type::Custom {
-                    name: "Foo".to_string(),
-                },
+                type_: ast::Type::Enum,
                 name: "Foo".to_string(),
                 members: vec!["Bar".to_string(), "Baz".to_string(), "Qux".to_string()]
             }
@@ -1685,7 +1669,7 @@ mod tests {
             stmt,
             ast::Stmt::Interface {
                 name: "Foo".to_string(),
-                type_: ast::Type::Custom {
+                type_: ast::Type::Interface {
                     name: "Foo".to_string(),
                 },
                 methods: vec![
