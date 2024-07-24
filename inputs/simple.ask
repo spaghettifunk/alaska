@@ -6,13 +6,12 @@ fn test() -> string {
 }
 
 fn main() -> int {    
-    let f = 10 + 11;        // f = 21
-    let k = (f - 3)/9 - 1; // k = 1
+    let f = 10 + 11;        
+    let k = (f - 3)/9 - 1;
 
-    test();
-    let t = test{name: "davide", color: 2};
-    later();
-
+    test();    
+    let l = later(10);
+    
     if (f < 42) {
         let k = "shadow variable k";
         let f = 10+50;
@@ -20,20 +19,22 @@ fn main() -> int {
         return f;
     }
 
-    k = fancy(f, k); // k = 21
+    k = fancy(f, k);
 
     return k;
 }
 
-struct test {
-    name string
-    color int
+struct Fantasy {
+    pub name string
+    pub color int
 }
 
-fn later(xk: int) -> string {
-    let k = "hello later";
+fn later(xk: int) -> int {
+    let unused = "hello later";
+    let fan = Fantasy{name: "davide", color: 42};
+    let result = fancy(xk, fan.color);
 
-    return k;
+    return -1;
 }
 
 fn fancy(a: int, b: int) -> int {

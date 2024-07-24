@@ -14,6 +14,7 @@ pub enum ParseError {
         column: u32,
     },
     MissingPackageStatement,
+    OnlyOnePackageStatement,
 }
 
 impl From<&ParseError> for String {
@@ -38,6 +39,7 @@ impl From<&ParseError> for String {
                 line, column
             ),
             ParseError::MissingPackageStatement => "Missing package statement at top of the file".to_string(),
+            ParseError::OnlyOnePackageStatement => "Only one package statement is allowed per file".to_string(),
         }
     }
 }

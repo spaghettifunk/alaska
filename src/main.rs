@@ -37,28 +37,12 @@ fn main() -> Result<()> {
     }
 
     let mut sema = SemanticAnalyzer::new();
-    let result = sema.symbols_collection(ast);
-    match result {
+    match sema.analyze(ast) {
         Ok(_) => {
-            println!("First pass (symbols collection) - completed");
-            match sema.forward_references() {
-                Ok(_) => {
-                    println!("Second pass (forward references) - completed");
-                    println!("");
-                    println!("{}", sema);
-                }
-                Err(errors) => {
-                    for error in errors {
-                        eprintln!("{}", error);
-                    }
-                    std::process::exit(1);
-                }
-            }
+            println!("Semantic Analysis completed successfully");
         }
         Err(errors) => {
-            for error in errors {
-                eprintln!("{}", error);
-            }
+            println!("Error during semantic analysis: {:?}", errors);
             std::process::exit(1);
         }
     }

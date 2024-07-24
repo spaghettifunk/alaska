@@ -1,5 +1,3 @@
-use std::{rc::Rc, sync::Arc};
-
 use crate::{
     lexer::{Token, TokenKind},
     T,
@@ -59,40 +57,40 @@ where
     I: Iterator<Item = Token>,
 {
     #[inline]
-    pub fn parse_expression(&mut self) -> Result<ast::Stmt> {
+    pub fn parse_expression(&mut self) -> Result<ast::Expr> {
         match self.expression(0) {
             Ok(expr) => return Ok(expr),
             Err(found) => return Err(found),
         }
     }
 
-    fn parse_expr_fn_call(&mut self, fn_name: String) -> Result<ast::Stmt> {
+    fn parse_expr_fn_call(&mut self, fn_name: String) -> Result<ast::Expr> {
         let mut args = Vec::new();
         self.consume(T!['(']);
         while !self.at(T![')']) {
             let arg = self.parse_expression();
-            args.push(Rc::new(Arc::new(arg?)));
+            args.push(Box::new(arg?));
             if self.at(T![,]) {
                 self.consume(T![,]);
             }
         }
         self.consume(T![')']);
 
-        Ok(ast::Stmt::FunctionCall { name: fn_name, args })
+        Ok(ast::Expr::FunctionCall { name: fn_name, args })
     }
 
-    fn parse_exp_array_access(&mut self, array: String) -> Result<ast::Stmt> {
+    fn parse_exp_array_access(&mut self, array: String) -> Result<ast::Expr> {
         self.consume(T!['[']);
         let index = self.parse_expression();
         self.consume(T![']']);
 
-        Ok(ast::Stmt::ArrayAccess {
+        Ok(ast::Expr::ArrayAccess {
             name: array,
-            index: Rc::new(Arc::new(index?)),
+            index: Box::new(index?),
         })
     }
 
-    fn expression(&mut self, binding_power: u8) -> Result<ast::Stmt> {
+    fn expression(&mut self, binding_power: u8) -> Result<ast::Expr> {
         let next = self.peek();
         let mut lhs = match next {
             // `lit @ T![int]` (and similar) gives a name to the kind that is matched, so that I can use it again in the second match.
@@ -106,32 +104,32 @@ where
                     self.text(literal_token)
                 };
                 let expr_lit = match lit {
-                    T![int] => ast::Lit::Int(
+                    T![int] => ast::Expr::IntegerLiteral(
                         literal_text
                             .parse()
                             .expect(&format!("invalid integer literal: `{}`", literal_text)),
                     ),
-                    T![float] => ast::Lit::Float(
+                    T![float] => ast::Expr::FloatLiteral(
                         literal_text
                             .parse()
                             .expect(&format!("invalid floating point literal: `{}`", literal_text)),
                     ),
-                    T![string] => ast::Lit::Str(
+                    T![string] => ast::Expr::StringLiteral(
                         // trim the quotation marks
                         literal_text[1..(literal_text.len() - 1)].to_string(),
                     ),
-                    T![bool] => ast::Lit::Bool(
+                    T![bool] => ast::Expr::BoolLiteral(
                         literal_text
                             .parse()
                             .expect(&format!("invalid boolean literal: `{}`", literal_text)),
                     ),
-                    T![char] => ast::Lit::Char(
+                    T![char] => ast::Expr::CharLiteral(
                         // trim the quotation marks
                         literal_text[1..(literal_text.len() - 1)].chars().next().unwrap(),
                     ),
                     _ => unreachable!(),
                 };
-                Ok(ast::Stmt::Literal(expr_lit))
+                Ok(expr_lit)
             }
             T![ident] => {
                 let name = {
@@ -149,9 +147,9 @@ where
                     // caller needs to consume the dot
                     self.consume(T![.]);
                     let expr = self.parse_expression();
-                    Ok(ast::Stmt::StructAccess {
+                    Ok(ast::Expr::StructAccess {
                         name,
-                        field: Rc::new(Arc::new(expr?)),
+                        field: Box::new(expr?),
                     })
                 } else if self.at(T!['{']) {
                     self.consume(T!['{']);
@@ -169,19 +167,16 @@ where
                         let member_name = self.text(member_ident).to_string();
                         self.consume(T![:]);
                         let member_value = self.parse_expression();
-                        members.push((member_name, Rc::new(Arc::new(member_value?))));
+                        members.push((member_name, Box::new(member_value?)));
                         if self.at(T![,]) {
                             self.consume(T![,]);
                         }
                     }
                     self.consume(T!['}']);
-                    Ok(ast::Stmt::StructInstantiation { name, members })
+                    Ok(ast::Expr::StructInstantiation { name, members })
                 } else {
                     // plain identifier
-                    Ok(ast::Stmt::Identifier {
-                        name: name.clone(),
-                        type_: ast::Type::new("unknown".to_string(), ast::Lit::Unknown, None),
-                    })
+                    Ok(ast::Expr::Variable(name.clone()))
                 }
             }
             T!['('] => {
@@ -197,14 +192,14 @@ where
                 let ((), right_binding_power) = op.prefix_binding_power();
                 let expr = self.expression(right_binding_power);
 
-                Ok(ast::Stmt::PrefixOp {
+                Ok(ast::Expr::PrefixOp {
                     op,
-                    expr: Rc::new(Arc::new(expr?)),
+                    expr: Box::new(expr?),
                 })
             }
             T![nil] => {
                 self.consume(T![nil]);
-                Ok(ast::Stmt::Literal(ast::Lit::Nil()))
+                Ok(ast::Expr::Nil)
             }
             // example --> { 1, 2, 3 }
             T!['{'] => {
@@ -213,7 +208,7 @@ where
                 while !self.at(T!['}']) {
                     let value = self.expression(0);
                     match value {
-                        Ok(val) => elements.push(Rc::new(Arc::new(val))),
+                        Ok(val) => elements.push(Box::new(val)),
                         Err(err) => return Err(err),
                     }
                     if self.at(T![,]) {
@@ -221,7 +216,7 @@ where
                     }
                 }
                 self.consume(T!['}']);
-                Ok(ast::Stmt::ArrayInitialization { elements })
+                Ok(ast::Expr::ArrayInitialization { elements })
             }
             found => {
                 let line_col = self.line_column();
@@ -325,9 +320,9 @@ where
                 self.consume(op);
                 // no recursive call here, because we have already
                 // parsed our operand `lhs`
-                lhs = Ok(ast::Stmt::PostfixOp {
+                lhs = Ok(ast::Expr::PostfixOp {
                     op,
-                    expr: Rc::new(Arc::new(lhs?)),
+                    expr: Box::new(lhs?),
                 });
                 // parsed an operator --> go round the loop again
                 continue;
@@ -342,10 +337,10 @@ where
 
                 self.consume(op);
                 let rhs = self.expression(right_binding_power);
-                lhs = Ok(ast::Stmt::InfixOp {
+                lhs = Ok(ast::Expr::BinaryOp {
                     op,
-                    lhs: Rc::new(Arc::new(lhs?)),
-                    rhs: Rc::new(Arc::new(rhs?)),
+                    lhs: Box::new(lhs?),
+                    rhs: Box::new(rhs?),
                 });
                 // parsed an operator --> go round the loop again
                 continue;
@@ -358,73 +353,62 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{rc::Rc, sync::Arc};
-
     use crate::{
-        parser::{ast, Parser},
+        parser::{
+            ast::{self},
+            Parser,
+        },
         T,
     };
 
     #[test]
     fn parse_expression() {
-        fn parse(input: &str) -> ast::Stmt {
+        fn parse(input: &str) -> ast::Expr {
             let mut parser = Parser::new(input);
             parser.parse_expression().unwrap()
         }
 
         // Weird spaces are to test that whitespace gets filtered out
         let expr = parse("42");
-        assert_eq!(expr, ast::Stmt::Literal(ast::Lit::Int(42)));
+        assert_eq!(expr, ast::Expr::IntegerLiteral(42));
         let expr = parse("  2.7768");
-        assert_eq!(expr, ast::Stmt::Literal(ast::Lit::Float(2.7768)));
+        assert_eq!(expr, ast::Expr::FloatLiteral(2.7768));
         let expr = parse(r#""I am a String!""#);
-        assert_eq!(expr, ast::Stmt::Literal(ast::Lit::Str("I am a String!".to_string())));
+        assert_eq!(expr, ast::Expr::StringLiteral("I am a String!".to_string()));
         let expr = parse("foo");
-        assert_eq!(
-            expr,
-            ast::Stmt::Identifier {
-                name: "foo".to_string(),
-                type_: ast::Type::new("unknown".to_string(), ast::Lit::Unknown, None),
-            }
-        );
+        assert_eq!(expr, ast::Expr::Variable("foo".to_string()));
         let expr = parse("bar (  x, 2)");
         assert_eq!(
             expr,
-            ast::Stmt::FunctionCall {
+            ast::Expr::FunctionCall {
                 name: "bar".to_string(),
                 args: vec![
-                    Rc::new(Arc::new(ast::Stmt::Identifier {
-                        name: "x".to_string(),
-                        type_: ast::Type::new("unknown".to_string(), ast::Lit::Unknown, None),
-                    })),
-                    Rc::new(Arc::new(ast::Stmt::Literal(ast::Lit::Int(2)))),
+                    Box::new(ast::Expr::Variable("x".to_string())),
+                    Box::new(ast::Expr::IntegerLiteral(2)),
                 ],
             }
         );
         let expr = parse("!  is_visible");
         assert_eq!(
             expr,
-            ast::Stmt::PrefixOp {
+            ast::Expr::PrefixOp {
                 op: T![!],
-                expr: Rc::new(Arc::new(ast::Stmt::Identifier {
-                    name: "is_visible".to_string(),
-                    type_: ast::Type::new("unknown".to_string(), ast::Lit::Unknown, None),
-                })),
+                expr: Box::new(ast::Expr::Variable("is_visible".to_string())),
             }
         );
         let expr = parse("(-13)");
         assert_eq!(
             expr,
-            ast::Stmt::PrefixOp {
+            ast::Expr::PrefixOp {
                 op: T![-],
-                expr: Rc::new(Arc::new(ast::Stmt::Literal(ast::Lit::Int(13)))),
+                expr: Box::new(ast::Expr::IntegerLiteral(13)),
             }
         );
     }
 
     #[test]
     fn parse_binary_expressions() {
-        fn parse(input: &str) -> ast::Stmt {
+        fn parse(input: &str) -> ast::Expr {
             let mut parser = Parser::new(input);
             parser.parse_expression().unwrap()
         }
@@ -474,7 +458,7 @@ mod tests {
 
     #[test]
     fn parse_postfix_op() {
-        fn parse(input: &str) -> ast::Stmt {
+        fn parse(input: &str) -> ast::Expr {
             let mut parser = Parser::new(input);
             parser.parse_expression().unwrap()
         }

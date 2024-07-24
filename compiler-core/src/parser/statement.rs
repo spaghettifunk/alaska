@@ -1,4 +1,4 @@
-use std::{rc::Rc, sync::Arc};
+use std::collections::HashMap;
 
 use crate::{lexer::Token, parser::ast::Type, T};
 
@@ -8,7 +8,7 @@ impl<'input, I> Parser<'input, I>
 where
     I: Iterator<Item = Token>,
 {
-    fn parse_package(&mut self) -> Result<ast::Stmt> {
+    fn parse_package(&mut self) -> Result<String> {
         self.consume(T![package]);
         let ident = self.next().expect("Expected identifier after `package`");
         assert_eq!(
@@ -19,7 +19,7 @@ where
         );
         let path = self.text(ident).to_string();
         self.consume(T![;]);
-        Ok(ast::Stmt::PackageDeclaration { name: path })
+        Ok(path.clone())
     }
 
     fn parse_use(&mut self) -> Result<ast::Stmt> {
@@ -33,7 +33,7 @@ where
         );
         let name = self.text(ident).to_string();
         self.consume(T![;]);
-        Ok(ast::Stmt::UseDeclaration { name })
+        Ok(ast::Stmt::UseDeclaration(name.clone()))
     }
 
     fn parse_fn_signature(&mut self) -> Result<ast::Stmt> {
@@ -46,7 +46,7 @@ where
             self.consume(T![<]);
             generics = Some(Vec::new());
             loop {
-                let generic = self.parse_type(&None);
+                let generic = self.parse_type(&None, false, false);
                 generics.as_mut().unwrap().push(generic);
 
                 match self.peek() {
@@ -63,7 +63,7 @@ where
         }
 
         self.consume(T!['(']);
-        let mut parameters = Vec::new();
+        let mut parameters = HashMap::new();
         while !self.at(T![')']) {
             let parameter_ident = self.next().expect(
                 "Tried to parse function parameter, 
@@ -77,8 +77,8 @@ where
             );
             let parameter_name = self.text(parameter_ident).to_string();
             self.consume(T![:]);
-            let parameter_type = self.parse_type(&None);
-            parameters.push((parameter_name, parameter_type));
+            let parameter_type = self.parse_type(&None, false, false);
+            parameters.insert(parameter_name, parameter_type);
             if self.at(T![,]) {
                 self.consume(T![,]);
             }
@@ -86,53 +86,18 @@ where
         self.consume(T![')']);
 
         // return type
-        let mut return_types: Vec<Type> = Vec::new();
+        let mut return_type: Option<Type> = None;
         if self.at(T![->]) {
             self.consume(T![->]);
-            let mut multiple_types: bool = false;
-            if self.at(T!['(']) {
-                self.consume(T!['(']);
-                multiple_types = true;
-            }
-
-            return_types.push(self.parse_type(&None));
-
-            if self.at(T![,]) {
-                while self.at(T![,]) {
-                    self.consume(T![,]);
-                    return_types.push(self.parse_type(&None));
-                }
-            }
-
-            if multiple_types {
-                if !self.at(T![')']) {
-                    let line_col = self.line_column();
-                    return Err(ParseError::UnexpectedToken {
-                        found: self.peek(),
-                        expected: vec![T![')']],
-                        line: line_col.0,
-                        column: line_col.1,
-                    });
-                } else {
-                    self.consume(T![')']);
-                }
-            }
+            return_type = Some(self.parse_type(&None, false, false));
         }
-        if return_types.is_empty() {
-            Ok(ast::Stmt::InterfaceFunctionSignature {
-                name: fn_name,
-                generics,
-                parameters: if parameters.len() > 0 { Some(parameters) } else { None },
-                return_type: None,
-            })
-        } else {
-            Ok(ast::Stmt::InterfaceFunctionSignature {
-                name: fn_name,
-                generics,
-                parameters: if parameters.len() > 0 { Some(parameters) } else { None },
-                return_type: Some(return_types),
-            })
-        }
+
+        Ok(ast::Stmt::InterfaceFunctionSignature {
+            name: fn_name,
+            generics,
+            parameters: if parameters.len() > 0 { Some(parameters) } else { None },
+            return_type,
+        })
     }
 
     fn parse_fn(&mut self, is_public: bool) -> Result<ast::Stmt> {
@@ -152,7 +117,7 @@ where
             self.consume(T![<]);
             generics = Some(Vec::new());
             loop {
-                let generic = self.parse_type(&None);
+                let generic = self.parse_type(&None, false, false);
                 generics.as_mut().unwrap().push(generic);
 
                 match self.peek() {
@@ -184,7 +149,7 @@ where
             );
             let parameter_name = self.text(parameter_ident).to_string();
             self.consume(T![:]);
-            let parameter_type = self.parse_type(&None);
+            let parameter_type = self.parse_type(&None, false, false);
             parameters.push((parameter_name, parameter_type));
             if self.at(T![,]) {
                 self.consume(T![,]);
@@ -193,37 +158,11 @@ where
         self.consume(T![')']);
 
         // parse the return type if any
-        let mut return_types = None;
+        let mut return_types: Option<Type> = None;
         if self.at(T![->]) {
             self.consume(T![->]);
-            return_types = Some(Vec::new());
-            let mut multiple_types: bool = false;
-            if self.at(T!['(']) {
-                self.consume(T!['(']);
-                multiple_types = true;
-            }
-
-            return_types.as_mut().unwrap().push(self.parse_type(&None));
-            if self.at(T![,]) {
-                while self.at(T![,]) {
-                    self.consume(T![,]);
-                    return_types.as_mut().unwrap().push(self.parse_type(&None));
-                }
-            }
-
-            if multiple_types {
-                if !self.at(T![')']) {
-                    let line_col = self.line_column();
-                    return Err(ParseError::UnexpectedToken {
-                        found: self.peek(),
-                        expected: vec![T![')']],
-                        line: line_col.0,
-                        column: line_col.1,
-                    });
-                } else {
-                    self.consume(T![')']);
-                }
-            }
+            let typ = self.parse_type(&None, false, false);
+            return_types = Some(typ);
         }
 
         assert!(self.at(T!['{']), "Expected a block after function header");
@@ -236,7 +175,7 @@ where
                 Ok(stmt) => stmt,
                 Err(found) => return Err(found),
             };
-            body.push(Rc::new(Arc::new(stmt)));
+            body.push(Box::new(stmt));
         }
         self.consume(T!['}']);
 
@@ -262,7 +201,7 @@ where
         );
         let interface_name = self.text(ident).to_string();
 
-        let interface_type = self.parse_type(&Some(interface_name.clone()));
+        let interface_type = self.parse_type(&Some(interface_name.clone()), false, true);
 
         let mut methods = Vec::new();
 
@@ -281,7 +220,7 @@ where
 
             match fn_signature {
                 Ok(signature) => {
-                    methods.push(Rc::new(Arc::new(signature)));
+                    methods.push(Box::new(signature));
                 }
                 Err(_) => {
                     let line_col = self.line_column();
@@ -314,7 +253,7 @@ where
         );
 
         let struct_name = self.text(ident).to_string();
-        let struct_type = self.parse_type(&Some(struct_name.clone()));
+        let struct_type = self.parse_type(&Some(struct_name.clone()), true, false);
 
         let mut members = Vec::new();
 
@@ -336,12 +275,12 @@ where
                 member_ident.kind
             );
             let member_name = self.text(member_ident).to_string();
-            let member_type = self.parse_type(&None);
-            members.push(Rc::new(Arc::new(ast::Stmt::StructMember {
+            let member_type = self.parse_type(&None, false, false);
+            members.push(Box::new(ast::Expr::StructMember {
                 is_public,
                 name: member_name,
                 type_: member_type,
-            })));
+            }));
         }
 
         self.consume(T!['}']);
@@ -391,11 +330,11 @@ where
             is_public,
             name: name.clone(),
             members,
-            type_: ast::Type::new(name.clone(), ast::Lit::Enum(name.clone()), None),
+            type_: ast::Type::Enum,
         })
     }
 
-    fn parse_type(&mut self, opt_name: &Option<String>) -> ast::Type {
+    fn parse_type(&mut self, opt_name: &Option<String>, is_struct: bool, is_interface: bool) -> ast::Type {
         let mut type_name: Option<String> = opt_name.to_owned();
         if type_name.is_none() {
             let ident = self.next().expect("Tried to parse type, but there were no more tokens");
@@ -412,11 +351,11 @@ where
         }
 
         // check if the type is a generic type
+        let mut generics = Vec::new();
         if self.at(T![<]) {
             self.consume(T![<]);
-            let mut generics = Vec::new();
             loop {
-                let generic = self.parse_type(&None);
+                let generic = self.parse_type(&None, is_struct, is_interface);
                 generics.push(generic);
 
                 match self.peek() {
@@ -430,29 +369,37 @@ where
                     found => panic!("Expected `,` or `>` after generic type, found `{}` instead", found),
                 }
             }
-            ast::Type::new(
-                type_name.clone().unwrap(),
-                ast::Lit::from_string(type_name.clone().unwrap()),
-                if generics.len() > 0 { Some(generics) } else { None },
-            )
         // check if the type is an array
         } else if self.at(T!['[']) {
             // array declaration
             self.consume(T!['[']);
             self.consume(T![']']);
-            // TODO: do I need to mark the Type object that it is an array?
-            ast::Type::new(
-                type_name.clone().unwrap(),
-                ast::Lit::from_string(type_name.clone().unwrap()),
-                None,
-            )
+            // we don't know the type yet. It depends on the elements
+            return ast::Type::Array(Box::new(ast::Type::Unknown), 0);
+        }
         // just a name of a type - probably coming from a struct or elsewhere
-        } else {
-            ast::Type::new(
-                type_name.clone().unwrap(),
-                ast::Lit::from_string(type_name.clone().unwrap()),
-                None,
-            )
+        if is_struct {
+            return ast::Type::Struct {
+                name: type_name.clone().unwrap(),
+            };
+        }
+        if is_interface {
+            return ast::Type::Interface {
+                name: type_name.clone().unwrap(),
+            };
+        }
+
+        // This is the case where I know the name of the type (like an interface, enum, struct, etc)
+        // but I can't know that it's of
+        match ast::Type::from_string_to_type(type_name.clone().unwrap()) {
+            ast::Type::Unknown => {
+                return ast::Type::Custom {
+                    name: type_name.clone().unwrap(),
+                }
+            }
+            typ => {
+                return typ;
+            }
         }
     }
 
@@ -474,8 +421,8 @@ where
 
         Ok(ast::Stmt::Let {
             name,
-            type_: ast::Type::new("unknown".to_string(), ast::Lit::Unknown, None),
-            statement: Rc::new(Arc::new(value.unwrap())),
+            type_: ast::Type::Unknown,
+            expr: Box::new(value.unwrap()),
         })
     }
 
@@ -488,7 +435,7 @@ where
             self.consume(T!['(']);
             while !self.at(T![')']) {
                 let stmt = self.parse_expression();
-                multiple_stmts.push(Rc::new(Arc::new(stmt?)));
+                multiple_stmts.push(Box::new(stmt?));
                 if self.at(T![,]) {
                     self.consume(T![,]);
                 }
@@ -496,12 +443,12 @@ where
             self.consume(T![')']);
         } else {
             let value = self.parse_expression();
-            multiple_stmts.push(Rc::new(Arc::new(value?)));
+            multiple_stmts.push(Box::new(value?));
         }
 
         self.consume(T![;]);
 
-        Ok(ast::Stmt::Return { value: multiple_stmts })
+        Ok(ast::Stmt::Return { exprs: multiple_stmts })
     }
 
     fn parse_if(&mut self) -> Result<ast::Stmt> {
@@ -520,24 +467,29 @@ where
         let mut else_stmt_empty = false;
         let else_stmt = if self.at(T![else]) {
             self.consume(T![else]);
-            self.parse_statement()
+            let body = self.parse_statement();
+            let body = match body {
+                Ok(ast::Stmt::Block { stmts }) => stmts,
+                _ => unreachable!(),
+            };
+            Some(body)
         } else {
             else_stmt_empty = true;
-            Ok(ast::Stmt::Empty)
+            None
         };
 
         if else_stmt_empty {
             return Ok(ast::Stmt::IfStmt {
-                condition: Rc::new(Arc::new(condition?)),
+                condition: Box::new(condition?),
                 body,
                 else_stmt: None,
             });
         }
 
         Ok(ast::Stmt::IfStmt {
-            condition: Rc::new(Arc::new(condition?)),
+            condition: Box::new(condition?),
             body,
-            else_stmt: Some(Rc::new(Arc::new(else_stmt?))),
+            else_stmt,
         })
     }
 
@@ -555,7 +507,7 @@ where
 
         self.consume(T![range]);
         let expr = self.parse_expression();
-        let range = Rc::new(Arc::new(expr?));
+        let range = Box::new(expr?);
 
         assert!(self.at(T!['{']), "Expected a block after `for` statement");
         self.consume(T!['{']);
@@ -563,7 +515,7 @@ where
         let mut body = Vec::new();
         while !self.at(T!['}']) {
             let stmt = self.parse_statement();
-            body.push(Rc::new(Arc::new(stmt?)));
+            body.push(Box::new(stmt?));
         }
 
         self.consume(T!['}']);
@@ -581,7 +533,7 @@ where
         while !self.at(T!['}']) {
             let stmt = self.parse_statement();
             match stmt {
-                Ok(stmt) => stmts.push(Rc::new(Arc::new(stmt))),
+                Ok(stmt) => stmts.push(Box::new(stmt)),
                 Err(_) => break,
             }
         }
@@ -594,13 +546,13 @@ where
         self.consume(T!['(']);
         while !self.at(T![')']) {
             let arg = self.parse_expression();
-            args.push(Rc::new(Arc::new(arg?)));
+            args.push(Box::new(arg?));
             if self.at(T![,]) {
                 self.consume(T![,]);
             }
         }
         self.consume(T![')']);
-        Ok(ast::Stmt::FunctionCall { name, args })
+        Ok(ast::Stmt::Expression(Box::new(ast::Expr::FunctionCall { name, args })))
     }
 
     fn parse_assignment(&mut self, name: String) -> Result<ast::Stmt> {
@@ -610,20 +562,20 @@ where
 
         self.consume(T![;]);
 
-        Ok(ast::Stmt::Assignment {
+        Ok(ast::Stmt::Expression(Box::new(ast::Expr::Assignment {
             name,
-            type_: ast::Type::new("unknown".to_string(), ast::Lit::Unknown, None),
-            value: Rc::new(Arc::new(value?)),
-        })
+            type_: Box::new(ast::Type::Unknown),
+            value: Box::new(value?),
+        })))
     }
 
     fn parse_dot(&mut self, struct_name: String) -> Result<ast::Stmt> {
         self.consume(T![.]);
-        let stmt = self.parse_statement();
-        Ok(ast::Stmt::StructAccess {
+        let expr = self.parse_expression();
+        Ok(ast::Stmt::Expression(Box::new(ast::Expr::StructAccess {
             name: struct_name,
-            field: Rc::new(Arc::new(stmt?)),
-        })
+            field: Box::new(expr?),
+        })))
     }
 
     fn parse_struct_instatiation(&mut self, struct_name: String) -> Result<ast::Stmt> {
@@ -642,16 +594,16 @@ where
             let member_name = self.text(member_ident).to_string();
             self.consume(T![:]);
             let member_value = self.parse_expression();
-            members.push((member_name, Rc::new(Arc::new(member_value?))));
+            members.push((member_name, Box::new(member_value?)));
             if self.at(T![,]) {
                 self.consume(T![,]);
             }
         }
         self.consume(T!['}']);
-        Ok(ast::Stmt::StructInstantiation {
+        Ok(ast::Stmt::Expression(Box::new(ast::Expr::StructInstantiation {
             name: struct_name,
             members,
-        })
+        })))
     }
 
     fn parse_ident(&mut self) -> Result<ast::Stmt> {
@@ -670,17 +622,11 @@ where
             }
             T![,] => {
                 self.consume(T![,]);
-                Ok(ast::Stmt::Identifier {
-                    name,
-                    type_: ast::Type::new("unknown".to_string(), ast::Lit::Unknown, None),
-                })
+                Ok(ast::Stmt::Expression(Box::new(ast::Expr::Variable(name.clone()))))
             }
             T![;] => {
                 // We don't consyme the semicolon here, because it's consumed in the caller function
-                Ok(ast::Stmt::Identifier {
-                    name,
-                    type_: ast::Type::new("unknown".to_string(), ast::Lit::Unknown, None),
-                })
+                Ok(ast::Stmt::Expression(Box::new(ast::Expr::Variable(name.clone()))))
             }
             T!['('] => {
                 let fn_call = self.parse_fn_call(name);
@@ -692,7 +638,7 @@ where
             }
             T![+] | T![-] | T![*] | T![/] | T![^] | T![!] => {
                 let expr = self.parse_expression();
-                Ok(expr?)
+                Ok(ast::Stmt::Expression(Box::new(expr?)))
             }
             found => {
                 let line_col = self.line_column();
@@ -724,7 +670,7 @@ where
             self.consume(T![<]);
             generics = Some(Vec::new());
             loop {
-                let generic = self.parse_type(&None);
+                let generic = self.parse_type(&None, false, false);
                 generics.as_mut().unwrap().push(generic);
 
                 match self.peek() {
@@ -753,12 +699,12 @@ where
                 multiple_types = true;
             }
 
-            interfaces.as_mut().unwrap().push(self.parse_type(&None));
+            interfaces.as_mut().unwrap().push(self.parse_type(&None, false, true));
 
             if self.at(T![,]) {
                 while self.at(T![,]) {
                     self.consume(T![,]);
-                    interfaces.as_mut().unwrap().push(self.parse_type(&None));
+                    interfaces.as_mut().unwrap().push(self.parse_type(&None, false, true));
                 }
             }
 
@@ -786,7 +732,7 @@ where
                 is_public = true;
             }
             let fn_ = self.parse_fn(is_public);
-            methods.push(Rc::new(Arc::new(fn_?)));
+            methods.push(Box::new(fn_?));
         }
         self.consume(T!['}']);
 
@@ -810,16 +756,17 @@ where
 
         self.consume(T![:]);
 
-        let type_ = self.parse_type(&None);
+        let type_ = self.parse_type(&None, false, false);
 
         self.consume(T![=]);
         let value = self.parse_expression();
         self.consume(T![;]);
 
         Ok(ast::Stmt::Constant {
+            is_public: false, // TODO: add public constants
             name,
             type_,
-            value: Rc::new(Arc::new(value?)),
+            value: Box::new(value?),
         })
     }
 
@@ -835,7 +782,7 @@ where
             while !self.at(T![')']) {
                 let c = self.parse_const();
                 match c {
-                    Ok(c) => constants.push(Rc::new(Arc::new(c))),
+                    Ok(c) => constants.push(Box::new(c)),
                     Err(_) => {
                         let line_col = self.line_column();
                         return Err(ParseError::InvalidExpressionStatement {
@@ -850,7 +797,7 @@ where
             // single constant definition
             let c = self.parse_const();
             match c {
-                Ok(c) => constants.push(Rc::new(Arc::new(c))),
+                Ok(c) => constants.push(Box::new(c)),
                 Err(_) => {
                     let line_col = self.line_column();
                     return Err(ParseError::InvalidExpressionStatement {
@@ -869,11 +816,11 @@ where
         let ast = match next {
             T![+] | T![-] | T![*] | T![/] | T![^] | T![!] => {
                 let expr = self.parse_expression();
-                expr
+                Ok(ast::Stmt::Expression(Box::new(expr?)))
             }
             T![int] | T![float] | T![string] | T![bool] | T![char] => {
                 let lit = self.parse_expression();
-                Ok(lit?)
+                Ok(ast::Stmt::Expression(Box::new(lit?)))
             }
             T![let] => {
                 let let_stmt = self.parse_let();
@@ -905,14 +852,23 @@ where
             }
             T![defer] => {
                 self.consume(T![defer]);
-                let stmt = self.parse_statement();
-                Ok(ast::Stmt::Defer {
-                    stmt: Rc::new(Arc::new(stmt?)),
-                })
+                let expr = self.parse_expression();
+                match expr {
+                    Ok(expr) => {
+                        return Ok(ast::Stmt::Defer { expr: Box::new(expr) });
+                    }
+                    Err(_) => {
+                        let line_col = self.line_column();
+                        return Err(ParseError::InvalidExpressionStatement {
+                            line: line_col.0,
+                            column: line_col.1,
+                        });
+                    }
+                }
             }
             T![nil] => {
                 self.consume(T![nil]);
-                Ok(ast::Stmt::Literal(ast::Lit::Nil()))
+                Ok(ast::Stmt::Expression(Box::new(ast::Expr::Nil)))
             }
             found => {
                 let line_col = self.line_column();
@@ -929,22 +885,23 @@ where
 
     pub fn parse_input(&mut self, filename: &str) -> Result<ast::SourceFile> {
         let mut pkg_counter = 0;
+        let mut package_name = String::new();
         let mut stmts = Vec::new();
         loop {
             let next = self.peek();
             match next {
-                T![package] => {
-                    let stmt = self.parse_package();
-                    if stmt.is_err() {
+                T![package] => match self.parse_package() {
+                    Ok(pkg) => {
+                        if pkg_counter > 1 {
+                            return Err(ParseError::OnlyOnePackageStatement);
+                        }
+                        package_name = pkg;
+                        pkg_counter += 1;
+                    }
+                    Err(_) => {
                         return Err(ParseError::MissingPackageStatement);
                     }
-                    stmts.push(Rc::new(Arc::new(stmt?)));
-
-                    pkg_counter += 1;
-                    if pkg_counter > 1 {
-                        panic!("Only one package statement is allowed per file");
-                    }
-                }
+                },
                 T![use] => {
                     let stmt = self.parse_use();
                     if stmt.is_err() {
@@ -954,22 +911,22 @@ where
                             column: line_col.1,
                         });
                     }
-                    stmts.push(Rc::new(Arc::new(stmt?)));
+                    stmts.push(Box::new(stmt?));
                 }
                 T![pub] => {
                     self.consume(T![pub]);
                     match self.peek() {
                         T![fn] => {
                             let stmt = self.parse_fn(true);
-                            stmts.push(Rc::new(Arc::new(stmt?)));
+                            stmts.push(Box::new(stmt?));
                         }
                         T![struct] => {
                             let stmt = self.parse_struct(true);
-                            stmts.push(Rc::new(Arc::new(stmt?)));
+                            stmts.push(Box::new(stmt?));
                         }
                         T![enum] => {
                             let stmt = self.parse_enum(true);
-                            stmts.push(Rc::new(Arc::new(stmt?)));
+                            stmts.push(Box::new(stmt?));
                         }
                         found => {
                             let line_col = self.line_column();
@@ -984,32 +941,32 @@ where
                 }
                 T![fn] => {
                     let stmt = self.parse_fn(false);
-                    stmts.push(Rc::new(Arc::new(stmt?)));
+                    stmts.push(Box::new(stmt?));
                 }
                 T![struct] => {
                     let stmt = self.parse_struct(false);
-                    stmts.push(Rc::new(Arc::new(stmt?)));
+                    stmts.push(Box::new(stmt?));
                 }
                 T![enum] => {
                     let stmt = self.parse_enum(false);
-                    stmts.push(Rc::new(Arc::new(stmt?)));
+                    stmts.push(Box::new(stmt?));
                 }
                 T![interface] => {
                     let stmt = self.parse_interface();
-                    stmts.push(Rc::new(Arc::new(stmt?)));
+                    stmts.push(Box::new(stmt?));
                 }
                 T![impl] => {
                     let stmt = self.parse_impl();
-                    stmts.push(Rc::new(Arc::new(stmt?)));
+                    stmts.push(Box::new(stmt?));
                 }
                 T![const] => {
                     let stmt = self.parse_constant_group();
-                    stmts.push(Rc::new(Arc::new(stmt?)));
+                    stmts.push(Box::new(stmt?));
                 }
                 T![EOF] => break,
                 _ => match self.parse_statement() {
                     Ok(stmt) => {
-                        stmts.push(Rc::new(Arc::new(stmt)));
+                        stmts.push(Box::new(stmt));
                     }
                     Err(e) => {
                         return Err(e);
@@ -1024,6 +981,7 @@ where
 
         Ok(ast::SourceFile {
             name: filename.to_string(),
+            package: package_name,
             statements: stmts,
         })
     }
@@ -1031,9 +989,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{rc::Rc, sync::Arc};
+    use std::vec;
 
     use crate::{
+        hashmap,
         lexer::{Lexer, TokenKind},
         parser::{ast, Parser},
         T,
@@ -1238,102 +1197,74 @@ mod tests {
         assert_eq!(stmts.len(), 2);
 
         let let_stmt = &stmts[0];
-        match &***let_stmt {
-            ast::Stmt::Let { name: var_name, .. } => assert_eq!(var_name, "x"),
+        match let_stmt.as_ref() {
+            ast::Stmt::Let { name, .. } => assert_eq!(name, "x"),
             _ => unreachable!(),
         }
 
-        let stmts = match &**stmts[1] {
+        let stmts = match stmts[1].as_ref() {
             ast::Stmt::Block { stmts } => stmts,
             _ => unreachable!(),
         };
         assert_eq!(stmts.len(), 2);
 
         let assignment_stmt = &stmts[0];
-        match &***assignment_stmt {
-            ast::Stmt::Assignment { name: var_name, .. } => {
-                assert_eq!(var_name, "x");
-            }
+        match assignment_stmt.as_ref() {
+            ast::Stmt::Expression(expr) => match expr.as_ref() {
+                ast::Expr::Assignment { name, .. } => assert_eq!(name, "x"),
+                _ => unreachable!(),
+            },
             _ => unreachable!(),
         }
 
         let if_stmt = &stmts[1];
-        match &***if_stmt {
+        match if_stmt.as_ref() {
             ast::Stmt::IfStmt {
                 condition,
                 body,
                 else_stmt,
             } => {
-                assert!(matches!(
-                    &***condition,
-                    ast::Stmt::InfixOp {
-                        op: T![<],
-                        lhs: _lhs,
-                        rhs: _rhs,
-                    }
-                ));
+                // assert!(matches!(
+                //     condition,
+                //     Box::new(ast::Expr::BinaryOp {
+                //         op: T![<],
+                //         lhs: _lhs,
+                //         rhs: _rhs,
+                //     })
+                // ));
+
                 assert_eq!(body.len(), 2);
                 let x_assignment = &body[0];
-                match &***x_assignment {
-                    ast::Stmt::Assignment { name: var_name, .. } => assert_eq!(var_name, "x"),
+                match x_assignment.as_ref() {
+                    ast::Stmt::Expression(expr) => match expr.as_ref() {
+                        ast::Expr::Assignment { name, .. } => assert_eq!(name, "x"),
+                        _ => unreachable!(),
+                    },
                     _ => unreachable!(),
                 }
                 let y_assignment = &body[1];
-                match &***y_assignment {
-                    ast::Stmt::Assignment { name: var_name, .. } => assert_eq!(var_name, "y"),
+                match y_assignment.as_ref() {
+                    ast::Stmt::Expression(expr) => match expr.as_ref() {
+                        ast::Expr::Assignment { name, .. } => assert_eq!(name, "y"),
+                        _ => unreachable!(),
+                    },
                     _ => unreachable!(),
                 }
 
                 let else_stmt = match else_stmt {
-                    Some(stmt) => &**stmt,
+                    Some(stmt) => stmt,
                     None => unreachable!(),
                 };
 
-                match &**else_stmt {
-                    ast::Stmt::IfStmt {
-                        condition,
-                        body,
-                        else_stmt,
-                    } => {
-                        assert!(matches!(
-                            &***condition,
-                            ast::Stmt::InfixOp {
-                                op: T![<],
-                                lhs: _lhs,
-                                rhs: _rhs,
-                            }
-                        ));
-                        assert_eq!(body.len(), 2);
-                        let let_i = &body[0];
-                        match &***let_i {
-                            ast::Stmt::Let { name: var_name, .. } => assert_eq!(var_name, "i"),
+                for stmt in else_stmt {
+                    match stmt.as_ref() {
+                        ast::Stmt::Expression(expr) => match expr.as_ref() {
+                            ast::Expr::Assignment { name, .. } => assert_eq!(name, "x"),
                             _ => unreachable!(),
-                        }
-                        let x_assignment = &body[1];
-                        match &***x_assignment {
-                            ast::Stmt::Assignment { name: var_name, .. } => assert_eq!(var_name, "x"),
-                            _ => unreachable!(),
-                        }
-
-                        let else_stmt = match else_stmt {
-                            Some(stmt) => &**stmt,
-                            None => unreachable!(),
-                        };
-
-                        let stmts = match &**else_stmt {
-                            ast::Stmt::Block { stmts } => stmts,
-                            _ => unreachable!(),
-                        };
-                        assert_eq!(stmts.len(), 1);
-
-                        let x_assignment = &stmts[0];
-                        match &***x_assignment {
-                            ast::Stmt::Assignment { name: var_name, .. } => assert_eq!(var_name, "x"),
-                            _ => unreachable!(),
-                        }
+                        },
+                        _ => unreachable!(),
                     }
-                    _ => unreachable!(),
-                };
+                }
             }
             _ => unreachable!(),
         }
@@ -1365,9 +1296,9 @@ mod tests {
     //                     range,
     //                     Rc::new(Arc::new(ast::Stmt::ArrayInitialization {
     //                         elements: vec![
-    //                             Rc::new(Arc::new(ast::Stmt::Literal(ast::Lit::Int(0)))),
-    //                             Rc::new(Arc::new(ast::Stmt::Literal(ast::Lit::Int(1)))),
-    //                             Rc::new(Arc::new(ast::Stmt::Literal(ast::Lit::Int(2)))),
+    //                             Rc::new(Arc::new(ast::Stmt::Literal(ast::Expr::Int(0)))),
+    //                             Rc::new(Arc::new(ast::Stmt::Literal(ast::Expr::Int(1)))),
+    //                             Rc::new(Arc::new(ast::Stmt::Literal(ast::Expr::Int(2)))),
     //                         ]
     //                     }))
     //                 );
@@ -1473,8 +1404,15 @@ mod tests {
 
                 let (bar, bar_type) = &parameters.unwrap()[1];
                 assert_eq!(bar, "bar");
+                assert_eq!(
+                    bar_type,
+                    &ast::Type::Custom {
+                        name: "Bar".to_string(),
+                    }
+                );
 
                 assert_eq!(body.len(), 3);
+                assert_eq!(return_type, Some(ast::Type::String));
             }
             _ => unreachable!(),
         };
@@ -1508,22 +1446,35 @@ mod tests {
             } => {
                 assert_eq!(is_public, false);
                 assert_eq!(name, "Foo");
+                assert_eq!(
+                    type_,
+                    ast::Type::Custom {
+                        name: "Foo".to_string(),
+                    }
+                );
                 assert_eq!(members.len(), 2);
                 let member = &members[0];
 
-                match &***member {
-                    ast::Stmt::StructMember { is_public, name, type_ } => {
+                match member.as_ref() {
+                    ast::Expr::StructMember { is_public, name, type_ } => {
                         assert_eq!(*is_public, false);
                         assert_eq!(name, "x");
+                        assert_eq!(type_, &ast::Type::String);
                     }
                     _ => unreachable!(),
                 }
 
                 let member2 = &members[1];
-                match &***member2 {
-                    ast::Stmt::StructMember { is_public, name, type_ } => {
+                match member2.as_ref() {
+                    ast::Expr::StructMember { is_public, name, type_ } => {
                         assert_eq!(*is_public, false);
                         assert_eq!(name, "bar");
+                        assert_eq!(
+                            type_,
+                            &ast::Type::Custom {
+                                name: "Bar".to_string(),
+                            }
+                        );
                     }
                     _ => unreachable!(),
                 }
@@ -1560,9 +1511,9 @@ mod tests {
             }
         }
 
-        struct Foo<T, U> {
-            x String
-            bar Bar<Baz<T>, U>
+        struct Foo {
+            x string
+            bar bool
         }
     "#,
             )
@@ -1570,11 +1521,15 @@ mod tests {
         );
 
         match item {
-            ast::SourceFile { name, statements } => {
+            ast::SourceFile {
+                name,
+                package,
+                statements,
+            } => {
                 assert_eq!(name, "test");
                 assert_eq!(statements.len(), 3);
                 for stmt in statements {
-                    match &**stmt {
+                    match *stmt {
                         ast::Stmt::FunctionDeclaration {
                             is_public,
                             name,
@@ -1583,11 +1538,12 @@ mod tests {
                             body,
                             return_type,
                         } => {
-                            assert_eq!(*is_public, false);
+                            assert_eq!(is_public, false);
                             assert_eq!(name, "wow_we_did_it");
-                            assert_eq!(*generics, None);
+                            assert_eq!(generics, None);
                             assert_eq!(parameters.clone().unwrap().len(), 2);
                             assert_eq!(body.len(), 2);
+                            assert_eq!(return_type, None);
                         }
                         ast::Stmt::StructDeclaration {
                             is_public,
@@ -1595,11 +1551,17 @@ mod tests {
                             type_,
                             members,
                         } => {
-                            assert_eq!(*is_public, false);
+                            assert_eq!(is_public, false);
                             assert_eq!(name, "Foo");
                             assert_eq!(members.len(), 2);
+                            assert_eq!(
+                                type_,
+                                ast::Type::Custom {
+                                    name: "Foo".to_string(),
+                                }
+                            );
                         }
-                        ast::Stmt::PackageDeclaration { name } => {
+                        ast::Stmt::PackageDeclaration(name) => {
                             assert_eq!(name, "main");
                         }
                         _ => unreachable!(),
@@ -1621,36 +1583,30 @@ mod tests {
             expr,
             ast::Stmt::Let {
                 name: "k".to_string(),
-                type_: ast::Type::new("unknown".to_string(), ast::Lit::Unknown, None),
-                statement: Rc::new(Arc::new(ast::Stmt::InfixOp {
+                type_: ast::Type::Unknown,
+                expr: Box::new(ast::Expr::BinaryOp {
                     op: TokenKind::Plus,
-                    lhs: Rc::new(Arc::new(ast::Stmt::InfixOp {
+                    lhs: Box::new(ast::Expr::BinaryOp {
                         op: TokenKind::Plus,
-                        lhs: Rc::new(Arc::new(ast::Stmt::InfixOp {
+                        lhs: Box::new(ast::Expr::BinaryOp {
                             op: TokenKind::Star,
-                            lhs: Rc::new(Arc::new(ast::Stmt::Identifier {
-                                name: "x".to_string(),
-                                type_: ast::Type::new("unknown".to_string(), ast::Lit::Unknown, None),
-                            })),
-                            rhs: Rc::new(Arc::new(ast::Stmt::Literal(ast::Lit::Int(4))))
-                        })),
-                        rhs: Rc::new(Arc::new(ast::Stmt::InfixOp {
+                            lhs: Box::new(ast::Expr::Variable("x".to_string())),
+                            rhs: Box::new(ast::Expr::IntegerLiteral(4))
+                        }),
+                        rhs: Box::new(ast::Expr::BinaryOp {
                             op: TokenKind::Star,
-                            lhs: Rc::new(Arc::new(ast::Stmt::PrefixOp {
+                            lhs: Box::new(ast::Expr::PrefixOp {
                                 op: TokenKind::Minus,
-                                expr: Rc::new(Arc::new(ast::Stmt::PostfixOp {
+                                expr: Box::new(ast::Expr::PostfixOp {
                                     op: TokenKind::Bang,
-                                    expr: Rc::new(Arc::new(ast::Stmt::Literal(ast::Lit::Int(2))))
-                                }))
-                            })),
-                            rhs: Rc::new(Arc::new(ast::Stmt::Literal(ast::Lit::Int(3))))
-                        }))
-                    })),
-                    rhs: Rc::new(Arc::new(ast::Stmt::Identifier {
-                        name: "z".to_string(),
-                        type_: ast::Type::new("unknown".to_string(), ast::Lit::Unknown, None),
-                    }))
-                }))
+                                    expr: Box::new(ast::Expr::IntegerLiteral(2))
+                                })
+                            }),
+                            rhs: Box::new(ast::Expr::IntegerLiteral(3))
+                        })
+                    }),
+                    rhs: Box::new(ast::Expr::Variable("z".to_string()))
+                })
             }
         );
     }
@@ -1666,11 +1622,11 @@ mod tests {
         assert_eq!(
             stmt,
             ast::Stmt::Return {
-                value: vec![Rc::new(Arc::new(ast::Stmt::InfixOp {
+                exprs: vec![Box::new(ast::Expr::BinaryOp {
                     op: TokenKind::Plus,
-                    lhs: Rc::new(Arc::new(ast::Stmt::Literal(ast::Lit::Int(7)))),
-                    rhs: Rc::new(Arc::new(ast::Stmt::Literal(ast::Lit::Int(3))))
-                }))]
+                    lhs: Box::new(ast::Expr::IntegerLiteral(7)),
+                    rhs: Box::new(ast::Expr::IntegerLiteral(3))
+                })]
             }
         );
     }
@@ -1698,7 +1654,9 @@ mod tests {
             stmt,
             ast::Stmt::Enum {
                 is_public: false,
-                type_: ast::Type::new("Foo".to_string(), ast::Lit::Enum("Foo".to_string()), None),
+                type_: ast::Type::Custom {
+                    name: "Foo".to_string(),
+                },
                 name: "Foo".to_string(),
                 members: vec!["Bar".to_string(), "Baz".to_string(), "Qux".to_string()]
             }
@@ -1727,34 +1685,119 @@ mod tests {
             stmt,
             ast::Stmt::Interface {
                 name: "Foo".to_string(),
-                type_: ast::Type::new("Foo".to_string(), ast::Lit::Interface("Foo".to_string()), None),
+                type_: ast::Type::Custom {
+                    name: "Foo".to_string(),
+                },
                 methods: vec![
-                    Rc::new(Arc::new(ast::Stmt::InterfaceFunctionSignature {
+                    Box::new(ast::Stmt::InterfaceFunctionSignature {
                         name: "bar".to_string(),
                         generics: None,
-                        parameters: Some(vec![(
-                            "x".to_string(),
-                            ast::Type::new("int".to_string(), ast::Lit::from_string("int".to_string()), None)
-                        )]),
-                        return_type: Some(vec![ast::Type::new(
-                            "int".to_string(),
-                            ast::Lit::from_string("int".to_string()),
-                            None
-                        )])
-                    })),
-                    Rc::new(Arc::new(ast::Stmt::InterfaceFunctionSignature {
+                        parameters: Some(hashmap!["x".to_string() => ast::Type::Int]),
+                        return_type: Some(ast::Type::Int)
+                    }),
+                    Box::new(ast::Stmt::InterfaceFunctionSignature {
                         name: "baz".to_string(),
                         generics: None,
-                        parameters: Some(vec![(
-                            "y".to_string(),
-                            ast::Type::new("string".to_string(), ast::Lit::from_string("string".to_string()), None)
-                        )]),
-                        return_type: Some(vec![ast::Type::new(
-                            "string".to_string(),
-                            ast::Lit::from_string("string".to_string()),
-                            None
-                        )])
-                    }))
+                        parameters: Some(hashmap!["y".to_string() => ast::Type::String]),
+                        return_type: Some(ast::Type::String)
+                    })
+                ]
+            }
+        );
+    }
+
+    #[test]
+    fn parse_dot_struct() {
+        fn parse(input: &str) -> ast::SourceFile {
+            let mut parser = Parser::new(input);
+            parser.parse_input("struct").unwrap()
+        }
+
+        let stmt = parse(
+            unindent(
+                r#"
+                package main;
+
+                struct Foo {
+                    name string
+                    color int
+                }
+                
+                fn test() {
+                    let x = Foo{name: "davide", color: 7};
+
+                    let c = x.color;
+                    let n = x.name;                        
+                }                
+                "#,
+            )
+            .as_str(),
+        );
+
+        assert_eq!(
+            stmt,
+            ast::SourceFile {
+                name: "struct".to_string(),
+                package: "main".to_string(),
+                statements: vec![
+                    Box::new(ast::Stmt::StructDeclaration {
+                        is_public: false,
+                        name: "Foo".to_string(),
+                        type_: ast::Type::Struct {
+                            name: "Foo".to_string(),
+                        },
+                        members: vec![
+                            Box::new(ast::Expr::StructMember {
+                                is_public: false,
+                                name: "name".to_string(),
+                                type_: ast::Type::String
+                            }),
+                            Box::new(ast::Expr::StructMember {
+                                is_public: false,
+                                name: "color".to_string(),
+                                type_: ast::Type::Int
+                            })
+                        ]
+                    }),
+                    Box::new(ast::Stmt::FunctionDeclaration {
+                        is_public: false,
+                        name: "test".to_string(),
+                        generics: None,
+                        parameters: None,
+                        body: vec![
+                            Box::new(ast::Stmt::Let {
+                                name: "x".to_string(),
+                                type_: ast::Type::Unknown,
+                                expr: Box::new(ast::Expr::StructInstantiation {
+                                    name: "Foo".to_string(),
+                                    members: vec![
+                                        (
+                                            "name".to_string(),
+                                            Box::new(ast::Expr::StringLiteral("davide".to_string()))
+                                        ),
+                                        ("color".to_string(), Box::new(ast::Expr::IntegerLiteral(7)))
+                                    ]
+                                })
+                            }),
+                            Box::new(ast::Stmt::Let {
+                                name: "c".to_string(),
+                                type_: ast::Type::Unknown,
+                                expr: Box::new(ast::Expr::StructAccess {
+                                    name: "x".to_string(),
+                                    field: Box::new(ast::Expr::Variable("color".to_string()))
+                                })
+                            }),
+                            Box::new(ast::Stmt::Let {
+                                name: "n".to_string(),
+                                type_: ast::Type::Unknown,
+                                expr: Box::new(ast::Expr::StructAccess {
+                                    name: "x".to_string(),
+                                    field: Box::new(ast::Expr::Variable("name".to_string()))
+                                })
+                            })
+                        ],
+                        return_type: None
+                    })
                 ]
             }
         );

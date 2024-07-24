@@ -31,4 +31,6 @@ Here is a list of features that I'd like to implement in the language:
 - [ ] Decorators using `@` like Python
 - [ ] Implement `modules`, `packages`, `registry`, etc for both internal/external dependencies
 - [ ] Implement Language Server for IDE
+- [ ] Implement multiple return types for functions
+- [ ] Implement `Generics` in the type system (already able to parse them)
 - [ ] ....and more
