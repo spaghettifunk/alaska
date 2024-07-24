@@ -62,6 +62,15 @@ impl Type {
             _ => Type::Unknown,
         }
     }
+
+    pub fn get_name(&self) -> Option<String> {
+        match self {
+            Type::Struct { name } => Some(name.clone()),
+            Type::Interface { name } => Some(name.clone()),
+            Type::Custom { name } => Some(name.clone()),
+            _ => None,
+        }
+    }
 }
 
 pub trait ExprInfo {
@@ -209,6 +218,7 @@ impl ExprInfo for Expr {
             Expr::StructAccess { name, .. } => Some(name),
             Expr::StructInstantiation { name, .. } => Some(name),
             Expr::StructMember { name, .. } => Some(name),
+            Expr::Variable(name) => Some(name),
             _ => None,
         }
     }
@@ -253,7 +263,7 @@ pub enum Stmt {
     IfStmt {
         condition: ExprBox,
         body: Vec<StmtBox>,
-        else_stmt: Option<StmtBox>,
+        else_stmt: Option<Vec<StmtBox>>,
     },
     RangeStmt {
         iterator: Identifier,
@@ -305,18 +315,10 @@ pub enum Stmt {
     Empty,
 }
 
-impl Stmt {
-    pub fn is_package_declaration(&self) -> (bool, String) {
-        match self {
-            Stmt::PackageDeclaration(name) => (true, name.clone()),
-            _ => (false, "".to_string()),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct SourceFile {
     pub name: String,
+    pub package: String,
     pub statements: Vec<StmtBox>,
 }
 
@@ -429,7 +431,9 @@ impl fmt::Display for Stmt {
                 }
                 write!(f, "}}")?;
                 if let Some(else_stmt) = else_stmt {
-                    write!(f, " else {{\n{}\n}}", else_stmt)?;
+                    for stmt in else_stmt {
+                        write!(f, " else {{\n{}\n}}", stmt)?;
+                    }
                 }
                 Ok(())
             }

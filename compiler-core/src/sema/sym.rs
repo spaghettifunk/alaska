@@ -8,88 +8,87 @@ use crate::parser::ast::Type;
 pub enum Symbol {
     Identifier {
         name: String,
-        type_: Type,   // Identifier type
-        value: String, // Identifier value as a String
+        type_: Type,
+        value: String,
     },
     Constant {
         name: String,
-        type_: Type,   // Constant type
-        value: String, // Constant with its value as a String
+        type_: Type,
+        value: String,
     },
     Struct {
         is_public: bool,
         name: String,
-        type_: Type, // Struct type
-        table: SymbolTable,
-    }, // Struct with its own symbol table
+        type_: Type,
+        memebers: Option<Vec<Symbol>>,
+    },
     StructMember {
         is_public: bool,
         name: String,
-        type_: Type, // Struct member type
+        type_: Type,
     },
     Impl {
         name: String,
         type_: Type,
-        interfaces: Option<Vec<Type>>, // Vector of interface names
-        table: SymbolTable,            // Impl with its own symbol table
+        interfaces: Option<Vec<Type>>,
+        methods: Option<Vec<Symbol>>, // Vector of Symbol::Function
     },
     Interface {
         name: String,
         type_: Type,
-        table: SymbolTable, // Interface with its own symbol table
+        methods: Option<Vec<Symbol>>, // Vector of Symbol::InterfaceMethod
     },
     InterfaceMethod {
         name: String,
-        parameters: Option<Vec<Symbol>>, // Vector of (parameter name, parameter type)
-        return_type: Option<Type>,       // Optional vector of return types
+        parameters: Option<Vec<Symbol>>,
+        return_type: Option<Type>,
     },
-    Block(Option<SymbolTable>), // Block with its own symbol table
+    Block(Option<Vec<Symbol>>),
     Enum {
         is_public: bool,
         name: String,
         type_: Type,
-        table: SymbolTable,
+        members: Option<Vec<Symbol>>,
     },
     EnumMember {
         name: String,
         type_: Type,
-        value: String, // Enum member value as a String
+        value: String,
     },
     Function {
         is_public: bool,
         name: String,
         parameters: Option<Vec<Symbol>>, // Vector of Symbol::FunctionParameter
-        return_type: Option<Type>,       // Optional return type
-        body: SymbolTable,               // Function body with its own symbol table
+        return_type: Option<Type>,
+        body: Option<Vec<Symbol>>,
     },
     FunctionCall {
         name: String,
-        arguments: Option<Vec<Symbol>>, // Vector of argument names
+        arguments: Option<Vec<Symbol>>,
     },
     RangeLoop {
         iterator: String,
         iterable: String,
-        body: SymbolTable, // Range loop body with its own symbol table
+        body: Option<Vec<Symbol>>,
     },
     WhileLoop {
         condition: String,
-        body: SymbolTable, // While loop body with its own symbol table
+        body: Option<Vec<Symbol>>,
     },
     IfStatement {
         condition: String,
-        then_body: SymbolTable,         // Then body with its own symbol table
-        else_body: Option<SymbolTable>, // Optional else body with its own symbol table
+        then_body: Option<Vec<Symbol>>,
+        else_body: Option<Vec<Symbol>>,
     },
-    Use(String), // Use statement
+    Use(String),
 }
 
 pub trait SymbolInfo {
     fn name(&self) -> Option<&str>;
     fn type_(&self) -> Option<&Type>;
     fn value(&self) -> Option<&str>;
-    fn table(&self) -> Option<&SymbolTable>;
     fn is_public(&self) -> Option<bool>;
-    fn parameters(&self) -> Option<Vec<Symbol>>;
+    fn parameters_members(&self) -> Option<Vec<Symbol>>;
     fn return_type(&self) -> Option<Type>;
     fn update_arguments(&mut self, arguments: Vec<Symbol>);
 }
@@ -136,17 +135,6 @@ impl SymbolInfo for Symbol {
         }
     }
 
-    fn table(&self) -> Option<&SymbolTable> {
-        match self {
-            Symbol::Struct { table, .. } => Some(table),
-            Symbol::Impl { table, .. } => Some(table),
-            Symbol::Interface { table, .. } => Some(table),
-            Symbol::Enum { table, .. } => Some(table),
-            Symbol::Block(table) => table.as_ref(),
-            _ => None,
-        }
-    }
-
     fn is_public(&self) -> Option<bool> {
         match self {
             Symbol::Struct { is_public, .. } => Some(*is_public),
@@ -157,11 +145,16 @@ impl SymbolInfo for Symbol {
         }
     }
 
-    fn parameters(&self) -> Option<Vec<Symbol>> {
+    fn parameters_members(&self) -> Option<Vec<Symbol>> {
         match self {
             Symbol::InterfaceMethod { parameters, .. } => parameters.clone(),
             Symbol::Function { parameters, .. } => parameters.clone(),
-            _ => None,
+            Symbol::Enum { members, .. } => members.clone(),
+            Symbol::Struct { memebers, .. } => memebers.clone(),
+            found => {
+                print!("Found: {:?}", found);
+                None
+            }
         }
     }
 
@@ -328,31 +321,37 @@ impl fmt::Display for SymbolTable {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Context {
     scopes: Vec<SymbolTable>,
+    current_scope_index: usize,
 }
 
 impl Context {
     pub fn new() -> Self {
-        Context { scopes: Vec::new() }
+        Context {
+            scopes: Vec::new(),
+            current_scope_index: 0,
+        }
     }
 
     pub fn enter_scope(&mut self, name: String) {
         let new_table = SymbolTable::new(name.clone());
         self.scopes.push(new_table);
+        self.current_scope_index += 1;
     }
 
     pub fn exit_scope(&mut self) -> Option<SymbolTable> {
-        self.scopes.pop()
+        self.current_scope_index -= 1;
+        self.current_scope().cloned()
     }
 
     pub fn current_scope(&self) -> Option<&SymbolTable> {
-        self.scopes.last()
+        self.scopes.get(self.current_scope_index)
     }
 
     pub fn current_scope_mut(&mut self) -> Option<&mut SymbolTable> {
-        self.scopes.last_mut()
+        self.scopes.get_mut(self.current_scope_index)
     }
 
     pub fn lookup_current_scope(&self, symbol: &str) -> Option<&Symbol> {
@@ -381,11 +380,20 @@ impl Context {
     }
 }
 
+impl fmt::Display for Context {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for scope in &self.scopes {
+            write!(f, "{}", scope)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct GlobalSymbolTable {
     // Global symbol table in which all the symbols are stored
     // here we store mostly at package level
-    pub packages: HashMap<String, SymbolTable>,
+    pub packages: HashMap<String, Context>,
 }
 
 impl GlobalSymbolTable {
@@ -405,52 +413,20 @@ impl GlobalSymbolTable {
         None
     }
 
-    pub fn get_package_symbol_table(&mut self, name: &str) -> &mut SymbolTable {
-        return self
-            .packages
-            .entry(name.to_string().clone())
-            .or_insert(SymbolTable::new(name.to_string().clone()));
+    pub fn get_package_context(&mut self, name: &str) -> &mut Context {
+        self.packages.entry(name.to_string()).or_insert_with(Context::new)
+    }
+
+    pub fn add_package_context(&mut self, name: &str, context: Context) {
+        self.packages.insert(name.to_string(), context);
     }
 }
 
 impl fmt::Display for GlobalSymbolTable {
     fn fmt(&self, _: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fn print_nested_tables(table: SymbolTable, depth: usize) {
-            for symbol in table.symbols.values() {
-                match symbol {
-                    Symbol::Struct { table, .. }
-                    | Symbol::Impl { table, .. }
-                    | Symbol::Interface { table, .. }
-                    | Symbol::Enum { table, .. }
-                    | Symbol::Block(Some(table))
-                    | Symbol::Function { body: table, .. }
-                    | Symbol::RangeLoop { body: table, .. }
-                    | Symbol::WhileLoop { body: table, .. } => {
-                        println!("Nested Table: {}", table.borrow().name);
-                        println!("{}", table);
-                        print_nested_tables(table.clone(), depth + 1);
-                    }
-                    Symbol::IfStatement {
-                        then_body, else_body, ..
-                    } => {
-                        println!("Then Table: {}", then_body.borrow().name);
-                        println!("{}", then_body);
-                        print_nested_tables(then_body.clone(), depth + 1);
-                        if let Some(else_body) = else_body {
-                            println!("Else Table: {}", else_body.borrow().name);
-                            println!("{}", else_body);
-                            print_nested_tables(else_body.clone(), depth + 1);
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        Ok(for (package_name, symbol_table) in self.packages.clone() {
+        Ok(for (package_name, context) in self.packages.clone() {
             println!("Package: {}", package_name);
-            println!("{}", symbol_table.borrow());
-            print_nested_tables(symbol_table, 1);
+            println!("{}", context);
         })
     }
 }

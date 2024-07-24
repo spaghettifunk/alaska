@@ -8,7 +8,7 @@ impl<'input, I> Parser<'input, I>
 where
     I: Iterator<Item = Token>,
 {
-    fn parse_package(&mut self) -> Result<ast::Stmt> {
+    fn parse_package(&mut self) -> Result<String> {
         self.consume(T![package]);
         let ident = self.next().expect("Expected identifier after `package`");
         assert_eq!(
@@ -19,7 +19,7 @@ where
         );
         let path = self.text(ident).to_string();
         self.consume(T![;]);
-        Ok(ast::Stmt::PackageDeclaration(path.clone()))
+        Ok(path.clone())
     }
 
     fn parse_use(&mut self) -> Result<ast::Stmt> {
@@ -467,10 +467,15 @@ where
         let mut else_stmt_empty = false;
         let else_stmt = if self.at(T![else]) {
             self.consume(T![else]);
-            self.parse_statement()
+            let body = self.parse_statement();
+            let body = match body {
+                Ok(ast::Stmt::Block { stmts }) => stmts,
+                _ => unreachable!(),
+            };
+            Some(body)
         } else {
             else_stmt_empty = true;
-            Ok(ast::Stmt::Empty)
+            None
         };
 
         if else_stmt_empty {
@@ -484,7 +489,7 @@ where
         Ok(ast::Stmt::IfStmt {
             condition: Box::new(condition?),
             body,
-            else_stmt: Some(Box::new(else_stmt?)),
+            else_stmt,
         })
     }
 
@@ -880,31 +885,23 @@ where
 
     pub fn parse_input(&mut self, filename: &str) -> Result<ast::SourceFile> {
         let mut pkg_counter = 0;
-        let mut is_pkg_first_defined = false;
+        let mut package_name = String::new();
         let mut stmts = Vec::new();
         loop {
             let next = self.peek();
-            // Background: package statement must be the first statement in the file
-            if self.line_column() == (1, 1) && !is_pkg_first_defined {
-                is_pkg_first_defined = true;
-                if next != T![package] {
-                    return Err(ParseError::MissingPackageStatement);
-                }
-            }
-
             match next {
-                T![package] => {
-                    let stmt = self.parse_package();
-                    if stmt.is_err() {
+                T![package] => match self.parse_package() {
+                    Ok(pkg) => {
+                        if pkg_counter > 1 {
+                            return Err(ParseError::OnlyOnePackageStatement);
+                        }
+                        package_name = pkg;
+                        pkg_counter += 1;
+                    }
+                    Err(_) => {
                         return Err(ParseError::MissingPackageStatement);
                     }
-                    stmts.push(Box::new(stmt?));
-
-                    pkg_counter += 1;
-                    if pkg_counter > 1 {
-                        panic!("Only one package statement is allowed per file");
-                    }
-                }
+                },
                 T![use] => {
                     let stmt = self.parse_use();
                     if stmt.is_err() {
@@ -984,6 +981,7 @@ where
 
         Ok(ast::SourceFile {
             name: filename.to_string(),
+            package: package_name,
             statements: stmts,
         })
     }
@@ -991,7 +989,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::{rc::Rc, sync::Arc, vec};
+    use std::vec;
 
     use crate::{
         hashmap,
@@ -1258,57 +1256,15 @@ mod tests {
                     None => unreachable!(),
                 };
 
-                match else_stmt.as_ref() {
-                    ast::Stmt::IfStmt {
-                        condition,
-                        body,
-                        else_stmt,
-                    } => {
-                        // assert!(matches!(
-                        //     condition,
-                        //     Box::new(ast::Expr::BinaryOp {
-                        //         op: T![<],
-                        //         lhs: _lhs,
-                        //         rhs: _rhs,
-                        //     })
-                        // ));
-                        assert_eq!(body.len(), 2);
-                        let let_i = &body[0];
-                        match let_i.as_ref() {
-                            ast::Stmt::Let { name, .. } => assert_eq!(name, "i"),
+                for stmt in else_stmt {
+                    match stmt.as_ref() {
+                        ast::Stmt::Expression(expr) => match expr.as_ref() {
+                            ast::Expr::Assignment { name, .. } => assert_eq!(name, "x"),
                             _ => unreachable!(),
-                        }
-                        let x_assignment = &body[1];
-                        match x_assignment.as_ref() {
-                            ast::Stmt::Expression(expr) => match expr.as_ref() {
-                                ast::Expr::Assignment { name, .. } => assert_eq!(name, "x"),
-                                _ => unreachable!(),
-                            },
-                            _ => unreachable!(),
-                        }
-
-                        let else_stmt = match else_stmt {
-                            Some(stmt) => stmt,
-                            None => unreachable!(),
-                        };
-
-                        let stmts = match else_stmt.as_ref() {
-                            ast::Stmt::Block { stmts } => stmts,
-                            _ => unreachable!(),
-                        };
-                        assert_eq!(stmts.len(), 1);
-
-                        let x_assignment = &stmts[0];
-                        match x_assignment.as_ref() {
-                            ast::Stmt::Expression(expr) => match expr.as_ref() {
-                                ast::Expr::Assignment { name, .. } => assert_eq!(name, "x"),
-                                _ => unreachable!(),
-                            },
-                            _ => unreachable!(),
-                        }
+                        },
+                        _ => unreachable!(),
                     }
-                    _ => unreachable!(),
-                };
+                }
             }
             _ => unreachable!(),
         }
@@ -1565,7 +1521,11 @@ mod tests {
         );
 
         match item {
-            ast::SourceFile { name, statements } => {
+            ast::SourceFile {
+                name,
+                package,
+                statements,
+            } => {
                 assert_eq!(name, "test");
                 assert_eq!(statements.len(), 3);
                 for stmt in statements {
@@ -1778,8 +1738,8 @@ mod tests {
             stmt,
             ast::SourceFile {
                 name: "struct".to_string(),
+                package: "main".to_string(),
                 statements: vec![
-                    Box::new(ast::Stmt::PackageDeclaration("main".to_string())),
                     Box::new(ast::Stmt::StructDeclaration {
                         is_public: false,
                         name: "Foo".to_string(),

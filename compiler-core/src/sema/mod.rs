@@ -38,37 +38,22 @@ impl SemanticAnalyzer {
     // first pass to collect as many symbols as possible
     pub fn analyze(&mut self, ast: AST) -> Result<(), Vec<String>> {
         let mut errors: Vec<String> = Vec::new();
-        let mut context = Context::new();
 
         let files = ast.files.clone();
-        files.iter().all(|sourcefile| {
+        for sourcefile in files {
             println!("Analyzing file: {}", sourcefile.name);
-            for stmt in &sourcefile.statements {
-                let pkg_decl = stmt.is_package_declaration();
-                if pkg_decl.0 {
-                    let pkg_name = format!("pkg.{}", pkg_decl.1);
-                    context.enter_scope(pkg_name.clone());
 
-                    let current_package_symbol_table = self.global_symbol_table.get_package_symbol_table(&pkg_name);
+            let pkg_name = format!("pkg.{}", sourcefile.package);
+            let mut context = self.global_symbol_table.get_package_context(&pkg_name).clone();
 
-                    if let Some(current_table) = context.current_scope_mut() {
-                        *current_table = current_package_symbol_table.clone();
-                    }
-                }
-
-                if let Err(e) = self.process_stmt(context.borrow_mut(), *stmt.clone()) {
+            for stmt in sourcefile.statements {
+                if let Err(e) = self.process_stmt(&mut context, *stmt.clone()) {
                     errors.push(e);
                 }
             }
 
-            if let Some(pkg_name) = context.current_scope().map(|table| table.name.clone()) {
-                if let Some(exited_table) = context.exit_scope() {
-                    self.global_symbol_table.packages.insert(pkg_name, exited_table);
-                }
-            }
-
-            true
-        });
+            self.global_symbol_table.add_package_context(&pkg_name, context);
+        }
 
         println!("First pass (symbols collection and type checking) - completed");
         match self.forward_references_pass() {
@@ -170,10 +155,15 @@ impl SemanticAnalyzer {
                 }
 
                 context.enter_scope(name.clone());
+                let mut methods_symbol = Vec::new();
                 for method in methods {
-                    self.process_stmt(context, *method)?;
+                    match self.process_stmt(context, *method)? {
+                        Some(symbol) => {
+                            methods_symbol.push(symbol);
+                        }
+                        None => {}
+                    }
                 }
-                let interface_table = context.current_scope().cloned().unwrap();
                 context.exit_scope();
 
                 if let Some(symbol_table) = context.current_scope_mut() {
@@ -181,7 +171,11 @@ impl SemanticAnalyzer {
                     let sym = Symbol::Interface {
                         name: name.clone(),
                         type_: type_.clone(),
-                        table: interface_table,
+                        methods: if methods_symbol.len() > 0 {
+                            Some(methods_symbol)
+                        } else {
+                            None
+                        },
                     };
                     symbol_table.add_symbol(name.clone(), sym.clone());
                     return Ok(Some(sym.clone()));
@@ -304,16 +298,21 @@ impl SemanticAnalyzer {
                 let block_id = format!("block.{}", Uuid::new_v4().to_string());
                 // Create a new block symbol table with the parent set to the current symbol table
                 context.enter_scope(block_id.clone());
-                // Process each statement within the new block scope
+
+                let mut stmts_symbols = Vec::new();
                 for stmt in stmts {
-                    self.process_stmt(context, *stmt)?;
+                    match self.process_stmt(context, *stmt)? {
+                        Some(symbol) => {
+                            stmts_symbols.push(symbol);
+                        }
+                        None => {}
+                    }
                 }
-                let block_symbol_table = context.current_scope().cloned();
                 context.exit_scope();
 
                 if let Some(symbol_table) = context.current_scope_mut() {
                     // Now, we can safely borrow the parent symbol table mutably and add the new block symbol table
-                    let sym = Symbol::Block(block_symbol_table.clone());
+                    let sym = Symbol::Block(Some(stmts_symbols));
                     symbol_table.add_symbol(block_id.clone(), sym.clone());
                     return Ok(Some(sym.clone()));
                 }
@@ -358,10 +357,15 @@ impl SemanticAnalyzer {
                 }
 
                 context.enter_scope(name.clone());
+                let mut methods_symbol = Vec::new();
                 for method in methods {
-                    self.process_stmt(context, *method)?;
+                    match self.process_stmt(context, *method)? {
+                        Some(symbol) => {
+                            methods_symbol.push(symbol);
+                        }
+                        None => {}
+                    }
                 }
-                let impl_methods_table = context.current_scope().cloned().unwrap();
                 context.exit_scope();
 
                 if let Some(symbol_table) = context.current_scope_mut() {
@@ -383,7 +387,11 @@ impl SemanticAnalyzer {
                         name: name.clone(),
                         type_: Type::Struct { name: name.clone() },
                         interfaces: interfaces.clone(),
-                        table: impl_methods_table,
+                        methods: if methods_symbol.len() > 0 {
+                            Some(methods_symbol)
+                        } else {
+                            None
+                        },
                     };
                     symbol_table.add_symbol(impl_symbol.clone(), sym.clone());
                     return Ok(Some(sym.clone()));
@@ -432,7 +440,9 @@ impl SemanticAnalyzer {
         context.enter_scope(name.clone());
 
         let mut parameters_symbol = Vec::new();
+        let mut fn_body_name = String::new();
         if let Some(fn_body_table) = context.current_scope_mut() {
+            fn_body_name = fn_body_table.name.clone();
             if let Some(params) = parameters.clone() {
                 for (name, type_) in &params {
                     let ident_symbol = format!("let.{}", name);
@@ -457,11 +467,16 @@ impl SemanticAnalyzer {
         }
 
         // Process the function body
+        let mut body_symbols = Vec::new();
         for stmt in body {
-            self.process_stmt(context, *stmt)?;
+            match self.process_stmt(context, *stmt)? {
+                Some(symbol) => {
+                    body_symbols.push(symbol);
+                }
+                None => {}
+            }
         }
 
-        let fn_body_table = context.current_scope().cloned().unwrap();
         context.exit_scope();
 
         // Now add the function symbol to the parent symbol table
@@ -471,7 +486,7 @@ impl SemanticAnalyzer {
                 // if the type is still "custom" then we need to add it to the undefined types
                 if rt.variant_eq(&Type::Custom { name: "".to_string() }) {
                     self.undefined_types
-                        .entry(fn_body_table.name.clone())
+                        .entry(fn_body_name)
                         .or_insert(Vec::new())
                         .push((name.clone(), rt.clone()));
                 }
@@ -484,8 +499,12 @@ impl SemanticAnalyzer {
                 } else {
                     None
                 },
+                body: if body_symbols.len() > 0 {
+                    Some(body_symbols)
+                } else {
+                    None
+                },
                 return_type: return_type.clone(),
-                body: fn_body_table,
             };
             symbol_table.add_symbol(function_symbol.clone(), sym.clone());
             return Ok(Some(sym.clone()));
@@ -510,11 +529,12 @@ impl SemanticAnalyzer {
         context.enter_scope(name.clone());
 
         // Process each struct member
+        let mut members_symbol = Vec::new();
         for member in members {
             let m = member.clone();
             let result = self.collect_expr_symbols(context, *member);
             match result {
-                Ok(_) => {
+                Ok(sym) => {
                     let member_type = self.type_check_expr(context, *m.clone());
                     match member_type {
                         Ok(typ) => match typ {
@@ -535,13 +555,13 @@ impl SemanticAnalyzer {
                             return Err(e);
                         }
                     }
+                    members_symbol.push(sym.unwrap());
                 }
                 Err(e) => {
                     return Err(e);
                 }
             }
         }
-        let struct_members_table = context.current_scope().cloned().unwrap();
         context.exit_scope();
 
         // Add the struct symbol to the parent symbol table
@@ -551,7 +571,11 @@ impl SemanticAnalyzer {
                 is_public,
                 type_: type_.clone(),
                 name: name.clone(),
-                table: struct_members_table,
+                memebers: if members_symbol.len() > 0 {
+                    Some(members_symbol)
+                } else {
+                    None
+                },
             };
             symbol_table.add_symbol(struct_symbol.clone(), sym.clone());
             return Ok(Some(sym.clone()));
@@ -565,7 +589,7 @@ impl SemanticAnalyzer {
         context: &mut Context,
         condition: Box<Expr>,
         body: Vec<Box<Stmt>>,
-        else_stmt: Option<Box<Stmt>>,
+        else_stmt: Option<Vec<Box<Stmt>>>,
     ) -> Result<Option<Symbol>, String> {
         // TODO: I don't think I should use UUID here but something else to rebuild the name
         let if_id: String = format!("if.{}", Uuid::new_v4().to_string());
@@ -594,21 +618,31 @@ impl SemanticAnalyzer {
 
         context.enter_scope(if_id.clone());
 
+        let mut then_symbols = Vec::new();
         for stmt in body {
-            self.process_stmt(context, *stmt)?;
+            match self.process_stmt(context, *stmt)? {
+                Some(symbol) => {
+                    then_symbols.push(symbol);
+                }
+                None => {}
+            }
         }
 
-        let then_symbol_table = context.current_scope().cloned().unwrap();
         context.exit_scope();
 
-        let mut else_symbol_table: Option<SymbolTable> = None;
+        let mut else_symbols: Option<Vec<Symbol>> = None;
         if let Some(else_stmt) = else_stmt {
             let else_id = format!("else.{}", Uuid::new_v4().to_string());
             context.enter_scope(else_id.clone());
 
-            self.process_stmt(context, *else_stmt)?;
-
-            else_symbol_table = context.current_scope().cloned();
+            for stmt in else_stmt {
+                match self.process_stmt(context, *stmt)? {
+                    Some(symbol) => {
+                        else_symbols.get_or_insert(Vec::new()).push(symbol);
+                    }
+                    None => {}
+                }
+            }
             context.exit_scope();
 
             true
@@ -619,8 +653,16 @@ impl SemanticAnalyzer {
         if let Some(symbol_table) = context.current_scope_mut() {
             let sym = Symbol::IfStatement {
                 condition: String::new(), // TODO: what should I do here?
-                then_body: then_symbol_table,
-                else_body: else_symbol_table,
+                then_body: if then_symbols.len() > 0 {
+                    Some(then_symbols)
+                } else {
+                    None
+                },
+                else_body: if else_symbols.is_some() {
+                    Some(else_symbols.unwrap())
+                } else {
+                    None
+                },
             };
             symbol_table.add_symbol(if_id.clone(), sym.clone());
             return Ok(Some(sym.clone()));
@@ -665,17 +707,26 @@ impl SemanticAnalyzer {
         context.enter_scope(while_id.clone());
 
         // Process each statement in the while loop body
+        let mut body_symbols = Vec::new();
         for stmt in body {
-            self.process_stmt(context, *stmt)?;
+            match self.process_stmt(context, *stmt)? {
+                Some(symbol) => {
+                    body_symbols.push(symbol);
+                }
+                None => {}
+            }
         }
 
-        let while_symbol_table = context.current_scope().cloned().unwrap();
         context.exit_scope();
 
         if let Some(symbol_table) = context.current_scope_mut() {
             let sym = Symbol::WhileLoop {
                 condition: String::new(), // TODO: what should I do here?
-                body: while_symbol_table,
+                body: if body_symbols.len() > 0 {
+                    Some(body_symbols)
+                } else {
+                    None
+                },
             };
             symbol_table.add_symbol(while_id.clone(), sym.clone());
             return Ok(Some(sym.clone()));
@@ -711,8 +762,14 @@ impl SemanticAnalyzer {
         );
 
         // Process each statement in the range loop body
+        let mut range_symbols = Vec::new();
         for stmt in body {
-            self.process_stmt(context, *stmt)?;
+            match self.process_stmt(context, *stmt)? {
+                Some(symbol) => {
+                    range_symbols.push(symbol);
+                }
+                None => {}
+            }
         }
 
         context.exit_scope();
@@ -721,7 +778,11 @@ impl SemanticAnalyzer {
             let sym = Symbol::RangeLoop {
                 iterator,
                 iterable: String::new(), // TODO: what should I do here?
-                body: range_symbol_table,
+                body: if range_symbols.len() > 0 {
+                    Some(range_symbols)
+                } else {
+                    None
+                },
             };
             symbol_table.add_symbol(range_id.clone(), sym.clone());
             return Ok(Some(sym.clone()));
@@ -748,6 +809,7 @@ impl SemanticAnalyzer {
                 context.enter_scope(name.clone());
 
                 let mut enum_member_symbol_table = context.current_scope_mut().cloned().unwrap();
+                let mut enum_memeber_symbols = Vec::new();
                 // Add each enum member to the enum member symbol table
                 for (idx, member) in members.iter().enumerate() {
                     // Check if the enum member is already declared in the enum member symbol table
@@ -755,14 +817,13 @@ impl SemanticAnalyzer {
                         Err(format!("error: enum member `{}` already declared", member))?;
                     }
                     // Add the enum member to the enum member symbol table
-                    enum_member_symbol_table.add_symbol(
-                        member.clone(),
-                        Symbol::EnumMember {
-                            name: member.clone(),
-                            type_: Type::Int,
-                            value: idx.to_string(),
-                        },
-                    );
+                    let sym = Symbol::EnumMember {
+                        name: member.clone(),
+                        type_: Type::Int,
+                        value: idx.to_string(),
+                    };
+                    enum_member_symbol_table.add_symbol(member.clone(), sym.clone());
+                    enum_memeber_symbols.push(sym);
                 }
                 context.exit_scope();
 
@@ -772,7 +833,11 @@ impl SemanticAnalyzer {
                         is_public,
                         type_: type_.clone(),
                         name: name.clone(),
-                        table: enum_member_symbol_table,
+                        members: if enum_memeber_symbols.len() > 0 {
+                            Some(enum_memeber_symbols)
+                        } else {
+                            None
+                        },
                     };
                     symbol_table.add_symbol(enum_symbol.clone(), sym.clone());
                     return Ok(Some(sym.clone()));
@@ -905,13 +970,38 @@ impl SemanticAnalyzer {
             Expr::StructAccess { name, field } => {
                 // search in the global table if the struct is declared
                 // we use `let` because this is the identifier that has the Struct type
-                let struct_symbol = format!("let.{}", name);
+                let variable_struct_symbol = format!("let.{}", name);
                 // Immutable borrow to check if the struct symbol exists
-                let symbol = context.lookup(&struct_symbol);
+                let symbol = context.lookup(&variable_struct_symbol);
                 match symbol {
-                    Some(_) => {
-                        // If symbol exists, collect expression symbols for the field
-                        self.collect_expr_symbols(context, *field)
+                    Some(sym) => {
+                        let field_name = field.name().expect("Field name not found");
+
+                        let struct_type = sym.type_().expect(format!("type of `{}` not found", name).as_str());
+                        let struct_symbol_name =
+                            format!("struct.{}", struct_type.get_name().expect("name of struct not found"));
+
+                        match context.lookup(&struct_symbol_name) {
+                            Some(symbol) => {
+                                let members = symbol
+                                    .parameters_members()
+                                    .expect(format!("members of struct `{}` not found", name).as_str());
+
+                                for m in members {
+                                    if m.name().is_some() && m.name().unwrap() == field_name {
+                                        return Ok(Some(m.clone()));
+                                    }
+                                }
+                            }
+                            None => {
+                                // If symbol does not exist, return an error message
+                                return Err(format!("error: struct `{}` not declared", name));
+                            }
+                        }
+                        Err(format!(
+                            "error: field `{}` not declared in struct `{}`",
+                            field_name, name
+                        ))
                     }
                     None => {
                         // If symbol does not exist, return an error message
@@ -944,21 +1034,26 @@ impl SemanticAnalyzer {
                 // search in the global table if the struct is declared
                 let struct_symbol = format!("struct.{}", name);
                 // collect expression symbols for each member
+                let mut struct_member_symbols = Vec::new();
                 for (_, member) in members {
-                    self.collect_expr_symbols(context, *member.clone())?;
+                    match self.collect_expr_symbols(context, *member.clone())? {
+                        Some(symbol) => {
+                            struct_member_symbols.push(symbol);
+                        }
+                        None => {}
+                    }
                 }
-                // Immutable borrow to check if the struct symbol exists
 
                 match context.lookup(&struct_symbol) {
                     None => {
                         let sym = Symbol::Struct {
                             is_public: false,
                             name: name.clone(),
-                            type_: Type::Custom { name: name.clone() },
-                            // TODO: do I need a new context here???
-                            table: {
-                                let name = name.clone();
-                                SymbolTable::new(name.clone())
+                            type_: Type::Struct { name: name.clone() },
+                            memebers: if struct_member_symbols.len() > 0 {
+                                Some(struct_member_symbols)
+                            } else {
+                                None
                             },
                         };
                         // If symbol does not exist, add it to the forward references symbol table
@@ -1016,6 +1111,8 @@ impl SemanticAnalyzer {
                         Ok(Some(typ.clone()))
                     }
                     None => {
+                        // in case we can't find it, we need to check if it's a struct access
+                        // but how...?
                         return Err(format!("Variable {} not found", name));
                     }
                 }
@@ -1106,7 +1203,7 @@ impl SemanticAnalyzer {
                 let symbol_name = format!("fn.{}", name);
                 match context.lookup(&symbol_name) {
                     Some(func_symbol) => {
-                        if let Some(params) = func_symbol.parameters() {
+                        if let Some(params) = func_symbol.parameters_members() {
                             if params.len() != arg_types.len() {
                                 return Err(format!("Expected {} arguments, got {}", params.len(), arg_types.len()));
                             }
@@ -1179,13 +1276,13 @@ impl SemanticAnalyzer {
             Expr::StructAccess { name, field } => {
                 let symbol_name = format!("let.{}", name);
                 match context.lookup(&symbol_name) {
-                    Some(sym) => {
+                    Some(_) => {
                         // this always returns Type::Unknown
                         let typ = field.type_().expect("field type not found");
                         Ok(Some(typ.clone()))
                     }
                     None => {
-                        return Err(format!("Variable {} not found", name));
+                        return Err(format!("variable {} not found", name));
                     }
                 }
             }
@@ -1211,7 +1308,7 @@ impl SemanticAnalyzer {
                         Ok(Some(Type::Struct { name }))
                     }
                     None => {
-                        return Err(format!("Struct {} not found", name));
+                        return Err(format!("struct {} not found", name));
                     }
                 }
             }
