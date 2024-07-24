@@ -8,7 +8,7 @@ use uuid::Uuid;
 use sym::{Context, GlobalSymbolTable, Symbol, SymbolInfo, SymbolTable};
 
 use crate::{
-    parser::ast::{Expr, Stmt, Type, AST},
+    parser::ast::{Expr, ExprInfo, Stmt, Type, AST},
     T,
 };
 
@@ -1004,7 +1004,6 @@ impl SemanticAnalyzer {
             Expr::BoolLiteral(_) => Ok(Some(Type::Bool)),
             Expr::CharLiteral(_) => Ok(Some(Type::Char)),
             Expr::Nil => Ok(Some(Type::Optional(Box::new(Type::Nil)))),
-            // TODO: should I check this?
             Expr::Variable(name) => {
                 let symbol_name = format!("let.{}", name);
                 match context.lookup(&symbol_name) {
@@ -1180,12 +1179,10 @@ impl SemanticAnalyzer {
             Expr::StructAccess { name, field } => {
                 let symbol_name = format!("let.{}", name);
                 match context.lookup(&symbol_name) {
-                    Some(_) => {
-                        // how do I know that this symbol is referring to a Struct object?
-                        match self.type_check_expr(context, *field.clone()) {
-                            Ok(typ) => Ok(typ),
-                            Err(e) => Err(e),
-                        }
+                    Some(sym) => {
+                        // this always returns Type::Unknown
+                        let typ = field.type_().expect("field type not found");
+                        Ok(Some(typ.clone()))
                     }
                     None => {
                         return Err(format!("Variable {} not found", name));

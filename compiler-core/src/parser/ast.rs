@@ -66,6 +66,7 @@ impl Type {
 
 pub trait ExprInfo {
     fn name(&self) -> Option<&str>;
+    fn type_(&self) -> Option<&Type>;
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -95,6 +96,19 @@ pub enum Expr {
         type_: TypeBox,
         value: ExprBox,
     },
+    /// Represents a function call in the AST.
+    ///
+    /// # Fields
+    ///
+    /// * `name`: The name of the function being called.
+    /// * `args`: The arguments passed to the function call.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let result = my_fn(10, 20);
+    /// };
+    /// ```
     FunctionCall {
         name: String,
         args: Vec<ExprBox>,
@@ -106,10 +120,34 @@ pub enum Expr {
         name: String,
         index: ExprBox,
     },
+    /// Represents a struct access expression.
+    ///
+    /// This struct is used to access a field of a struct by providing the struct's name and the field expression.
+    /// The `name` field is a `String` that represents the name of the struct being accessed.
+    /// The `field` field is an `ExprBox` that represents the expression used to access the field.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// let x = MyStruct{name: "davide", age: 20};
+    /// let a = x.age;
+    /// let n = x.name;
+    /// };
+    /// ```
     StructAccess {
         name: String,
         field: ExprBox,
     },
+    /// Expression representing a struct instantiation
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// struct Person {
+    ///     name: string,
+    ///     age: int,
+    /// }
+    /// ```
     StructInstantiation {
         name: String,
         members: Vec<(String, ExprBox)>,
@@ -171,6 +209,15 @@ impl ExprInfo for Expr {
             Expr::StructAccess { name, .. } => Some(name),
             Expr::StructInstantiation { name, .. } => Some(name),
             Expr::StructMember { name, .. } => Some(name),
+            _ => None,
+        }
+    }
+
+    fn type_(&self) -> Option<&Type> {
+        match self {
+            Expr::Assignment { type_, .. } => Some(type_.as_ref()),
+            Expr::StructMember { type_, .. } => Some(type_),
+            Expr::Variable(_) => Some(&Type::Unknown),
             _ => None,
         }
     }

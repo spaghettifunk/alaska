@@ -1745,4 +1745,101 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn parse_dot_struct() {
+        fn parse(input: &str) -> ast::SourceFile {
+            let mut parser = Parser::new(input);
+            parser.parse_input("struct").unwrap()
+        }
+
+        let stmt = parse(
+            unindent(
+                r#"
+                package main;
+
+                struct Foo {
+                    name string
+                    color int
+                }
+                
+                fn test() {
+                    let x = Foo{name: "davide", color: 7};
+
+                    let c = x.color;
+                    let n = x.name;                        
+                }                
+                "#,
+            )
+            .as_str(),
+        );
+
+        assert_eq!(
+            stmt,
+            ast::SourceFile {
+                name: "struct".to_string(),
+                statements: vec![
+                    Box::new(ast::Stmt::PackageDeclaration("main".to_string())),
+                    Box::new(ast::Stmt::StructDeclaration {
+                        is_public: false,
+                        name: "Foo".to_string(),
+                        type_: ast::Type::Struct {
+                            name: "Foo".to_string(),
+                        },
+                        members: vec![
+                            Box::new(ast::Expr::StructMember {
+                                is_public: false,
+                                name: "name".to_string(),
+                                type_: ast::Type::String
+                            }),
+                            Box::new(ast::Expr::StructMember {
+                                is_public: false,
+                                name: "color".to_string(),
+                                type_: ast::Type::Int
+                            })
+                        ]
+                    }),
+                    Box::new(ast::Stmt::FunctionDeclaration {
+                        is_public: false,
+                        name: "test".to_string(),
+                        generics: None,
+                        parameters: None,
+                        body: vec![
+                            Box::new(ast::Stmt::Let {
+                                name: "x".to_string(),
+                                type_: ast::Type::Unknown,
+                                expr: Box::new(ast::Expr::StructInstantiation {
+                                    name: "Foo".to_string(),
+                                    members: vec![
+                                        (
+                                            "name".to_string(),
+                                            Box::new(ast::Expr::StringLiteral("davide".to_string()))
+                                        ),
+                                        ("color".to_string(), Box::new(ast::Expr::IntegerLiteral(7)))
+                                    ]
+                                })
+                            }),
+                            Box::new(ast::Stmt::Let {
+                                name: "c".to_string(),
+                                type_: ast::Type::Unknown,
+                                expr: Box::new(ast::Expr::StructAccess {
+                                    name: "x".to_string(),
+                                    field: Box::new(ast::Expr::Variable("color".to_string()))
+                                })
+                            }),
+                            Box::new(ast::Stmt::Let {
+                                name: "n".to_string(),
+                                type_: ast::Type::Unknown,
+                                expr: Box::new(ast::Expr::StructAccess {
+                                    name: "x".to_string(),
+                                    field: Box::new(ast::Expr::Variable("name".to_string()))
+                                })
+                            })
+                        ],
+                        return_type: None
+                    })
+                ]
+            }
+        );
+    }
 }
