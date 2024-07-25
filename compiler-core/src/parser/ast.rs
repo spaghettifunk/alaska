@@ -38,6 +38,8 @@ impl Type {
             (Type::Interface { name: name1 }, Type::Interface { name: name2 }) => name1 == name2,
             (Type::Optional(lit1), Type::Optional(lit2)) => lit1.is_equal(lit2),
             (Type::Nil, Type::Nil) => true,
+            (Type::Void, Type::Void) => true,
+            (Type::Unknown, Type::Unknown) => true,
             _ => false,
         }
     }
@@ -77,6 +79,25 @@ impl Type {
         match self {
             Type::Array { type_, .. } => Some(*type_.clone()),
             _ => None,
+        }
+    }
+
+    pub fn to_string(&self) -> String {
+        match self {
+            Type::Int => "int".to_string(),
+            Type::Float => "float".to_string(),
+            Type::Char => "char".to_string(),
+            Type::Bool => "bool".to_string(),
+            Type::Enum => "enum".to_string(),
+            Type::String => "string".to_string(),
+            Type::Array { type_, size } => format!("{}[{}]", type_, size),
+            Type::Struct { name } => format!("struct {}", name),
+            Type::Interface { name } => format!("interface {}", name),
+            Type::Custom { name } => format!("custom {}", name),
+            Type::Optional(type_) => format!("{}?", type_),
+            Type::Nil => "nil".to_string(),
+            Type::Void => "void".to_string(),
+            Type::Unknown => "unknown".to_string(),
         }
     }
 }
@@ -304,7 +325,7 @@ pub enum Stmt {
         name: Identifier,
         generics: Option<Vec<Type>>,
         parameters: Option<HashMap<Identifier, Type>>,
-        return_type: Option<Type>,
+        return_type: Type,
     },
     FunctionDeclaration {
         is_public: bool,
@@ -312,7 +333,7 @@ pub enum Stmt {
         generics: Option<Vec<Type>>,
         parameters: Option<Vec<(Identifier, Type)>>,
         body: Vec<StmtBox>,
-        return_type: Option<Type>,
+        return_type: Type,
     },
     ImplDeclaration {
         name: Identifier,
@@ -520,9 +541,7 @@ impl fmt::Display for Stmt {
                     }
                 }
                 write!(f, ")")?;
-                if let Some(return_type) = return_type {
-                    write!(f, " -> {:?}", return_type)?;
-                }
+                write!(f, " -> {:?}", return_type)?;
                 write!(f, " {{\n")?;
                 for stmt in body {
                     write!(f, "{}\n", stmt)?;
@@ -567,9 +586,7 @@ impl fmt::Display for Stmt {
                     }
                 }
                 write!(f, ")")?;
-                if let Some(return_type) = return_type {
-                    write!(f, " -> {:?}", return_type)?;
-                }
+                write!(f, " -> {:?}", return_type)?;
                 Ok(())
             }
             Stmt::ImplDeclaration {

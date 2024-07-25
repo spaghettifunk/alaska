@@ -16,14 +16,18 @@ use crate::{
 pub struct SemanticAnalyzer {
     global_symbol_table: GlobalSymbolTable,
     forward_references_symbol_table: SymbolTable,
-    // Key: String -> SymbolTable name of the current context,
-    // Value: List of (String -> Symbol name, CustomType -> the type of the symbol)
+    // Key: String -> package name,
+    // Value: List of (
+    //     String -> SymbolTable name of the current context,
+    //     String -> Symbol name,
+    //     Type -> the type of the symbol
+    // )
     //
     // Since we are doing type checking while building the symbol table
     // some symbols may not be defined yet and there is not a specific type but
     // rather a `Type::Custom`. We can do a pass later on to change the type in the
     // symbol table to the actual type
-    undefined_types: HashMap<String, Vec<(String, Type)>>,
+    undefined_types: HashMap<String, Vec<(String, String, Type)>>,
 }
 
 impl SemanticAnalyzer {
@@ -45,14 +49,21 @@ impl SemanticAnalyzer {
 
             let pkg_name = format!("pkg.{}", sourcefile.package);
             let mut context = self.global_symbol_table.get_package_context(&pkg_name).clone();
+            // inititalize the undefined types for the package
+            let mut undef_types_vec = self
+                .undefined_types
+                .entry(pkg_name.clone())
+                .or_insert(Vec::new())
+                .clone();
 
             for stmt in sourcefile.statements {
-                if let Err(e) = self.process_stmt(&mut context, *stmt.clone()) {
+                if let Err(e) = self.process_stmt(&mut context, *stmt.clone(), &mut undef_types_vec) {
                     errors.push(e);
                 }
             }
 
             self.global_symbol_table.add_package_context(&pkg_name, context);
+            self.undefined_types.insert(pkg_name.clone(), undef_types_vec);
         }
 
         println!("First pass (symbols collection and type checking) - completed");
@@ -72,13 +83,18 @@ impl SemanticAnalyzer {
         Ok(())
     }
 
-    fn process_stmt(&mut self, context: &mut Context, stmt: Stmt) -> Result<Option<Symbol>, String> {
+    fn process_stmt(
+        &mut self,
+        context: &mut Context,
+        stmt: Stmt,
+        undef_types_vec: &mut Vec<(String, String, Type)>,
+    ) -> Result<Option<Symbol>, String> {
         match stmt {
             Stmt::Expression(expr) => {
                 let e = expr.clone();
-                let result = self.collect_expr_symbols(context, *expr);
+                let result = self.collect_expr_symbols(context, *expr, undef_types_vec);
 
-                match self.type_check_expr(context, *e.clone()) {
+                match self.type_check_expr(context, *e.clone(), undef_types_vec) {
                     Ok(typ) => match typ {
                         Some(typ) => {
                             if typ.is_equal(&Type::Unknown) {
@@ -86,10 +102,11 @@ impl SemanticAnalyzer {
                             } else {
                                 // If the type is still "custom", add it to the undefined types
                                 if typ.variant_eq(&Type::Custom { name: "".to_string() }) {
-                                    self.undefined_types
-                                        .entry(context.current_scope().unwrap().name.clone())
-                                        .or_insert(Vec::new())
-                                        .push(("".to_string(), typ.clone()));
+                                    undef_types_vec.push((
+                                        context.current_scope().unwrap().name.clone(),
+                                        "".to_string(),
+                                        typ.clone(),
+                                    ));
                                 }
                             }
                         }
@@ -103,9 +120,9 @@ impl SemanticAnalyzer {
             }
             Stmt::Defer { expr } => {
                 let e = expr.clone();
-                let result = self.collect_expr_symbols(context, *expr);
+                let result = self.collect_expr_symbols(context, *expr, undef_types_vec);
 
-                match self.type_check_expr(context, *e.clone()) {
+                match self.type_check_expr(context, *e.clone(), undef_types_vec) {
                     Ok(typ) => match typ {
                         Some(typ) => {
                             if typ.is_equal(&Type::Unknown) {
@@ -130,10 +147,7 @@ impl SemanticAnalyzer {
                         // if the type is still "custom" then we need to add it to the undefined types
                         // in another pass we will replace this with the actual type
                         if type_.variant_eq(&Type::Custom { name: "".to_string() }) {
-                            self.undefined_types
-                                .entry(symbol_table.name.clone())
-                                .or_insert(Vec::new())
-                                .push((name.clone(), type_.clone()));
+                            undef_types_vec.push((symbol_table.name.clone(), name.clone(), type_.clone()));
                         }
 
                         let sym = Symbol::Constant {
@@ -157,7 +171,7 @@ impl SemanticAnalyzer {
                 context.enter_scope(name.clone());
                 let mut methods_symbol = Vec::new();
                 for method in methods {
-                    match self.process_stmt(context, *method)? {
+                    match self.process_stmt(context, *method, undef_types_vec)? {
                         Some(symbol) => {
                             methods_symbol.push(symbol);
                         }
@@ -198,10 +212,7 @@ impl SemanticAnalyzer {
                             // if the type is still "custom" then we need to add it to the undefined types
                             // in another pass we will replace this with the actual type
                             if typ.variant_eq(&Type::Custom { name: "".to_string() }) {
-                                self.undefined_types
-                                    .entry(symbol_table.name.clone())
-                                    .or_insert(Vec::new())
-                                    .push((name.clone(), typ.clone()));
+                                undef_types_vec.push((symbol_table.name.clone(), name.clone(), typ.clone()));
                             }
 
                             params.push(Symbol::Identifier {
@@ -212,20 +223,11 @@ impl SemanticAnalyzer {
                         }
                     }
 
-                    if return_type.is_some()
-                        && return_type
-                            .clone()
-                            .unwrap()
-                            .variant_eq(&Type::Custom { name: "".to_string() })
-                    {
-                        let rt = return_type.clone().unwrap();
+                    if return_type.clone().variant_eq(&Type::Custom { name: "".to_string() }) {
+                        let rt = return_type.clone();
                         // if the type is still "custom" then we need to add it to the undefined types
                         // in another pass we will replace this with the actual type
-
-                        self.undefined_types
-                            .entry(symbol_table.name.clone())
-                            .or_insert(Vec::new())
-                            .push((name.clone(), rt));
+                        undef_types_vec.push((symbol_table.name.clone(), name.clone(), rt));
                     }
 
                     let sym = Symbol::InterfaceMethod {
@@ -244,12 +246,19 @@ impl SemanticAnalyzer {
                     return Err(format!("error: identifier `{}` already declared", name));
                 }
 
-                let result_type = self.type_check_expr(context, *expr.clone());
+                let result_type = self.type_check_expr(context, *expr.clone(), undef_types_vec);
                 match result_type {
                     Ok(ref typ) => match typ {
                         Some(typ) => {
                             if typ.is_equal(&Type::Unknown) {
-                                return Err(format!("error: type of expression `{}` is unknown", expr));
+                                undef_types_vec.push((
+                                    context.current_scope().unwrap().name.clone(),
+                                    name.clone(),
+                                    typ.clone(),
+                                ));
+                            }
+                            if typ.is_equal(&Type::Void) {
+                                return Err(format!("error: type of expression `{}` is void", expr));
                             }
                         }
                         None => {}
@@ -265,10 +274,7 @@ impl SemanticAnalyzer {
                             if typ.variant_eq(&Type::Custom { name: "".to_string() }) {
                                 // If the type is still "custom", add it to the undefined types
                                 if typ.variant_eq(&Type::Custom { name: "".to_string() }) {
-                                    self.undefined_types
-                                        .entry(symbol_table.name.clone())
-                                        .or_insert(Vec::new())
-                                        .push((name.clone(), typ.clone()));
+                                    undef_types_vec.push((symbol_table.name.clone(), name.clone(), typ.clone()));
                                 }
                             }
 
@@ -285,15 +291,17 @@ impl SemanticAnalyzer {
                     }
                 }
                 // Process the statement's expression
-                self.collect_expr_symbols(context, *expr)
+                self.collect_expr_symbols(context, *expr, undef_types_vec)
             }
             Stmt::IfStmt {
                 condition,
                 body,
                 else_stmt,
-            } => self.process_if_stmt(context, condition, body, else_stmt),
-            Stmt::RangeStmt { iterator, range, body } => self.process_range_stmt(context, range, iterator, body),
-            Stmt::WhileStmt { condition, body } => self.process_while_stmt(context, condition, body),
+            } => self.process_if_stmt(context, condition, body, else_stmt, undef_types_vec),
+            Stmt::RangeStmt { iterator, range, body } => {
+                self.process_range_stmt(context, range, iterator, body, undef_types_vec)
+            }
+            Stmt::WhileStmt { condition, body } => self.process_while_stmt(context, condition, body, undef_types_vec),
             Stmt::Block { stmts } => {
                 let block_id = format!("block.{}", Uuid::new_v4().to_string());
                 // Create a new block symbol table with the parent set to the current symbol table
@@ -301,7 +309,7 @@ impl SemanticAnalyzer {
 
                 let mut stmts_symbols = Vec::new();
                 for stmt in stmts {
-                    match self.process_stmt(context, *stmt)? {
+                    match self.process_stmt(context, *stmt, undef_types_vec)? {
                         Some(symbol) => {
                             stmts_symbols.push(symbol);
                         }
@@ -320,7 +328,7 @@ impl SemanticAnalyzer {
             }
             Stmt::Return { exprs } => {
                 for expr in exprs {
-                    self.collect_expr_symbols(context, *expr)?;
+                    self.collect_expr_symbols(context, *expr, undef_types_vec)?;
                 }
                 Ok(None)
             }
@@ -335,7 +343,7 @@ impl SemanticAnalyzer {
                 name,
                 type_,
                 members,
-            } => self.process_structdecl_stmt(name, context, members, is_public, type_),
+            } => self.process_structdecl_stmt(name, context, members, is_public, type_, undef_types_vec),
             Stmt::FunctionDeclaration {
                 is_public,
                 name,
@@ -343,7 +351,7 @@ impl SemanticAnalyzer {
                 body,
                 return_type,
                 ..
-            } => self.process_funcdeclr_stmt(name, context, parameters, body, is_public, return_type),
+            } => self.process_funcdeclr_stmt(name, context, parameters, body, is_public, return_type, undef_types_vec),
             Stmt::ImplDeclaration {
                 name,
                 interfaces,
@@ -359,7 +367,7 @@ impl SemanticAnalyzer {
                 context.enter_scope(name.clone());
                 let mut methods_symbol = Vec::new();
                 for method in methods {
-                    match self.process_stmt(context, *method)? {
+                    match self.process_stmt(context, *method, undef_types_vec)? {
                         Some(symbol) => {
                             methods_symbol.push(symbol);
                         }
@@ -375,10 +383,7 @@ impl SemanticAnalyzer {
                         // in another pass we will replace this with the actual type
                         for it in interfaces {
                             if it.variant_eq(&Type::Custom { name: "".to_string() }) {
-                                self.undefined_types
-                                    .entry(symbol_table.name.clone())
-                                    .or_insert(Vec::new())
-                                    .push((name.clone(), it.clone()));
+                                undef_types_vec.push((symbol_table.name.clone(), name.clone(), it.clone()));
                             }
                         }
                     }
@@ -400,7 +405,7 @@ impl SemanticAnalyzer {
             }
             Stmt::ConstantGroup { constants } => {
                 for constant in constants {
-                    self.process_stmt(context, *constant)?;
+                    self.process_stmt(context, *constant, undef_types_vec)?;
                 }
                 Ok(None)
             }
@@ -428,7 +433,8 @@ impl SemanticAnalyzer {
         parameters: Option<Vec<(String, Type)>>,
         body: Vec<Box<Stmt>>,
         is_public: bool,
-        return_type: Option<Type>,
+        return_type: Type,
+        undef_types_vec: &mut Vec<(String, String, Type)>,
     ) -> Result<Option<Symbol>, String> {
         let function_symbol = format!("fn.{}", name);
 
@@ -449,10 +455,7 @@ impl SemanticAnalyzer {
 
                     // if the type is still "custom" then we need to add it to the undefined types
                     if type_.variant_eq(&Type::Custom { name: "".to_string() }) {
-                        self.undefined_types
-                            .entry(fn_body_table.name.clone())
-                            .or_insert(Vec::new())
-                            .push((name.clone(), type_.clone()));
+                        undef_types_vec.push((fn_body_table.name.clone(), name.clone(), type_.clone()));
                     }
 
                     let ident = Symbol::Identifier {
@@ -469,7 +472,7 @@ impl SemanticAnalyzer {
         // Process the function body
         let mut body_symbols = Vec::new();
         for stmt in body {
-            match self.process_stmt(context, *stmt)? {
+            match self.process_stmt(context, *stmt, undef_types_vec)? {
                 Some(symbol) => {
                     body_symbols.push(symbol);
                 }
@@ -481,15 +484,10 @@ impl SemanticAnalyzer {
 
         // Now add the function symbol to the parent symbol table
         if let Some(symbol_table) = context.current_scope_mut() {
-            if return_type.is_some() {
-                let rt = return_type.clone().unwrap();
-                // if the type is still "custom" then we need to add it to the undefined types
-                if rt.variant_eq(&Type::Custom { name: "".to_string() }) {
-                    self.undefined_types
-                        .entry(fn_body_name)
-                        .or_insert(Vec::new())
-                        .push((name.clone(), rt.clone()));
-                }
+            let rt = return_type.clone();
+            // if the type is still "custom" then we need to add it to the undefined types
+            if rt.variant_eq(&Type::Custom { name: "".to_string() }) {
+                undef_types_vec.push((fn_body_name, name.clone(), rt.clone()));
             }
             let sym = Symbol::Function {
                 is_public,
@@ -519,6 +517,7 @@ impl SemanticAnalyzer {
         members: Vec<Box<Expr>>,
         is_public: bool,
         type_: Type,
+        undef_types_vec: &mut Vec<(String, String, Type)>,
     ) -> Result<Option<Symbol>, String> {
         let struct_symbol = format!("struct.{}", name);
         // Check if the struct symbol already exists
@@ -532,10 +531,10 @@ impl SemanticAnalyzer {
         let mut members_symbol = Vec::new();
         for member in members {
             let m = member.clone();
-            let result = self.collect_expr_symbols(context, *member);
+            let result = self.collect_expr_symbols(context, *member, undef_types_vec);
             match result {
                 Ok(sym) => {
-                    let member_type = self.type_check_expr(context, *m.clone());
+                    let member_type = self.type_check_expr(context, *m.clone(), undef_types_vec);
                     match member_type {
                         Ok(typ) => match typ {
                             Some(typ) => {
@@ -543,10 +542,11 @@ impl SemanticAnalyzer {
                                     return Err(format!("error: type of struct member `{}` is unknown", *m));
                                 } else if typ.variant_eq(&Type::Custom { name: "".to_string() }) {
                                     // If the type is still "custom", add it to the undefined types
-                                    self.undefined_types
-                                        .entry(context.current_scope().unwrap().name.clone())
-                                        .or_insert(Vec::new())
-                                        .push(("".to_string(), typ.clone()));
+                                    undef_types_vec.push((
+                                        context.current_scope().unwrap().name.clone(),
+                                        "".to_string(),
+                                        typ.clone(),
+                                    ));
                                 }
                             }
                             None => {}
@@ -590,6 +590,7 @@ impl SemanticAnalyzer {
         condition: Box<Expr>,
         body: Vec<Box<Stmt>>,
         else_stmt: Option<Vec<Box<Stmt>>>,
+        undef_types_vec: &mut Vec<(String, String, Type)>,
     ) -> Result<Option<Symbol>, String> {
         // TODO: I don't think I should use UUID here but something else to rebuild the name
         let if_id: String = format!("if.{}", Uuid::new_v4().to_string());
@@ -597,8 +598,8 @@ impl SemanticAnalyzer {
             Err(format!("error: symbol `{}` already declared", if_id))?;
         }
 
-        self.collect_expr_symbols(context, *condition.clone())?;
-        let condition_type = self.type_check_expr(context, *condition.clone());
+        self.collect_expr_symbols(context, *condition.clone(), undef_types_vec)?;
+        let condition_type = self.type_check_expr(context, *condition.clone(), undef_types_vec);
         match condition_type {
             Ok(typ) => match typ {
                 Some(typ) => {
@@ -620,7 +621,7 @@ impl SemanticAnalyzer {
 
         let mut then_symbols = Vec::new();
         for stmt in body {
-            match self.process_stmt(context, *stmt)? {
+            match self.process_stmt(context, *stmt, undef_types_vec)? {
                 Some(symbol) => {
                     then_symbols.push(symbol);
                 }
@@ -636,7 +637,7 @@ impl SemanticAnalyzer {
             context.enter_scope(else_id.clone());
 
             for stmt in else_stmt {
-                match self.process_stmt(context, *stmt)? {
+                match self.process_stmt(context, *stmt, undef_types_vec)? {
                     Some(symbol) => {
                         else_symbols.get_or_insert(Vec::new()).push(symbol);
                     }
@@ -675,11 +676,12 @@ impl SemanticAnalyzer {
         context: &mut Context,
         condition: Box<Expr>,
         body: Vec<Box<Stmt>>,
+        undef_types_vec: &mut Vec<(String, String, Type)>,
     ) -> Result<Option<Symbol>, String> {
         // TODO: does this need to go to the parent symbol table or
         // the one that is being created?
-        self.collect_expr_symbols(context, *condition.clone())?;
-        let condition_type = self.type_check_expr(context, *condition.clone());
+        self.collect_expr_symbols(context, *condition.clone(), undef_types_vec)?;
+        let condition_type = self.type_check_expr(context, *condition.clone(), undef_types_vec);
         match condition_type {
             Ok(typ) => match typ {
                 Some(typ) => {
@@ -709,7 +711,7 @@ impl SemanticAnalyzer {
         // Process each statement in the while loop body
         let mut body_symbols = Vec::new();
         for stmt in body {
-            match self.process_stmt(context, *stmt)? {
+            match self.process_stmt(context, *stmt, undef_types_vec)? {
                 Some(symbol) => {
                     body_symbols.push(symbol);
                 }
@@ -740,12 +742,13 @@ impl SemanticAnalyzer {
         range: Box<Expr>,
         iterator: String,
         body: Vec<Box<Stmt>>,
+        undef_types_vec: &mut Vec<(String, String, Type)>,
     ) -> Result<Option<Symbol>, String> {
         // TODO: does this need to go to the parent symbol table or
         // the one that is being created?
-        self.collect_expr_symbols(context, *range.clone())?;
+        self.collect_expr_symbols(context, *range.clone(), undef_types_vec)?;
         // TODO: range should be type Itearable but how do you do it??
-        let _range_type = self.type_check_expr(context, *range.clone());
+        let _range_type = self.type_check_expr(context, *range.clone(), undef_types_vec);
 
         let range_id = format!("range.{}", Uuid::new_v4().to_string());
 
@@ -764,7 +767,7 @@ impl SemanticAnalyzer {
         // Process each statement in the range loop body
         let mut range_symbols = Vec::new();
         for stmt in body {
-            match self.process_stmt(context, *stmt)? {
+            match self.process_stmt(context, *stmt, undef_types_vec)? {
                 Some(symbol) => {
                     range_symbols.push(symbol);
                 }
@@ -847,7 +850,12 @@ impl SemanticAnalyzer {
         }
     }
 
-    fn collect_expr_symbols(&mut self, context: &mut Context, expr: Expr) -> Result<Option<Symbol>, String> {
+    fn collect_expr_symbols(
+        &mut self,
+        context: &mut Context,
+        expr: Expr,
+        undef_types_vec: &mut Vec<(String, String, Type)>,
+    ) -> Result<Option<Symbol>, String> {
         let e = expr.clone();
         match expr {
             Expr::Variable(name) => {
@@ -858,7 +866,7 @@ impl SemanticAnalyzer {
                 match symbol {
                     Some(sym) => Ok(Some(sym.clone())),
                     None => {
-                        let typ = self.type_check_expr(context, e);
+                        let typ = self.type_check_expr(context, e, undef_types_vec);
                         if typ.is_err() {
                             return Err(typ.unwrap_err());
                         }
@@ -879,7 +887,7 @@ impl SemanticAnalyzer {
                 if context.lookup(&name).is_some() {
                     return Err(format!("error: struct member `{}` already declared", name));
                 }
-                match self.type_check_expr(context, e) {
+                match self.type_check_expr(context, e, undef_types_vec) {
                     Ok(typ) => match typ {
                         Some(typ) => {
                             if let Some(symbol_table) = context.current_scope_mut() {
@@ -905,7 +913,7 @@ impl SemanticAnalyzer {
 
                 let mut arguments: Option<Vec<Symbol>> = None;
                 for arg in args.clone() {
-                    match self.collect_expr_symbols(context, *arg.clone()) {
+                    match self.collect_expr_symbols(context, *arg.clone(), undef_types_vec) {
                         Ok(s) => match s {
                             Some(symbol) => {
                                 arguments.get_or_insert(Vec::new()).push(symbol);
@@ -943,7 +951,7 @@ impl SemanticAnalyzer {
             }
             Expr::ArrayInitialization { elements } => {
                 for element in elements {
-                    self.collect_expr_symbols(context, *element)?;
+                    self.collect_expr_symbols(context, *element, undef_types_vec)?;
                 }
                 Ok(None)
             }
@@ -956,7 +964,7 @@ impl SemanticAnalyzer {
                 match symbol {
                     Some(_) => {
                         // If symbol exists, collect expression symbols for the index
-                        self.collect_expr_symbols(context, *index)
+                        self.collect_expr_symbols(context, *index, undef_types_vec)
                     }
                     None => {
                         // If symbol does not exist, return an error message
@@ -1009,11 +1017,11 @@ impl SemanticAnalyzer {
                     }
                 }
             }
-            Expr::PrefixOp { expr, .. } => self.collect_expr_symbols(context, *expr),
-            Expr::PostfixOp { expr, .. } => self.collect_expr_symbols(context, *expr),
+            Expr::PrefixOp { expr, .. } => self.collect_expr_symbols(context, *expr, undef_types_vec),
+            Expr::PostfixOp { expr, .. } => self.collect_expr_symbols(context, *expr, undef_types_vec),
             Expr::BinaryOp { lhs, rhs, .. } => {
-                self.collect_expr_symbols(context, *lhs)?;
-                self.collect_expr_symbols(context, *rhs)
+                self.collect_expr_symbols(context, *lhs, undef_types_vec)?;
+                self.collect_expr_symbols(context, *rhs, undef_types_vec)
             }
             Expr::Assignment { name, value, .. } => {
                 let variable_symbol = format!("let.{}", name);
@@ -1022,7 +1030,7 @@ impl SemanticAnalyzer {
                 match symbol {
                     Some(_) => {
                         // If symbol exists, collect expression symbols for the value
-                        self.collect_expr_symbols(context, *value)
+                        self.collect_expr_symbols(context, *value, undef_types_vec)
                     }
                     None => {
                         // If symbol does not exist, return an error message
@@ -1036,7 +1044,7 @@ impl SemanticAnalyzer {
                 // collect expression symbols for each member
                 let mut struct_member_symbols = Vec::new();
                 for (_, member) in members {
-                    match self.collect_expr_symbols(context, *member.clone())? {
+                    match self.collect_expr_symbols(context, *member.clone(), undef_types_vec)? {
                         Some(symbol) => {
                             struct_member_symbols.push(symbol);
                         }
@@ -1091,7 +1099,12 @@ impl SemanticAnalyzer {
         Ok(())
     }
 
-    fn type_check_expr(&mut self, context: &Context, expr: Expr) -> Result<Option<Type>, String> {
+    fn type_check_expr(
+        &mut self,
+        context: &Context,
+        expr: Expr,
+        undef_types_vec: &mut Vec<(String, String, Type)>,
+    ) -> Result<Option<Type>, String> {
         match expr {
             Expr::IntegerLiteral(_) => Ok(Some(Type::Int)),
             Expr::FloatLiteral(_) => Ok(Some(Type::Float)),
@@ -1117,7 +1130,7 @@ impl SemanticAnalyzer {
                     }
                 }
             }
-            Expr::PrefixOp { op, expr } => match self.type_check_expr(context, *expr.clone())? {
+            Expr::PrefixOp { op, expr } => match self.type_check_expr(context, *expr.clone(), undef_types_vec)? {
                 Some(typ) => match op {
                     T![!] => {
                         if typ == Type::Bool {
@@ -1140,8 +1153,8 @@ impl SemanticAnalyzer {
                 }
             },
             Expr::BinaryOp { op, lhs, rhs } => {
-                let lhs_typ = self.type_check_expr(context, *lhs.clone())?;
-                let rhs_typ = self.type_check_expr(context, *rhs.clone())?;
+                let lhs_typ = self.type_check_expr(context, *lhs.clone(), undef_types_vec)?;
+                let rhs_typ = self.type_check_expr(context, *rhs.clone(), undef_types_vec)?;
                 if rhs_typ.is_none() || lhs_typ.is_none() {
                     return Ok(Some(Type::Unknown));
                 }
@@ -1181,7 +1194,7 @@ impl SemanticAnalyzer {
                     _ => Err(format!("Unknown binary operator {}", op)),
                 }
             }
-            Expr::PostfixOp { op, expr } => match self.type_check_expr(context, *expr.clone())? {
+            Expr::PostfixOp { op, expr } => match self.type_check_expr(context, *expr.clone(), undef_types_vec)? {
                 Some(typ) => match op {
                     T![++] | T![--] => {
                         if typ == Type::Int {
@@ -1197,7 +1210,7 @@ impl SemanticAnalyzer {
             Expr::FunctionCall { name, args } => {
                 let mut arg_types: Vec<Type> = Vec::new();
                 for arg in args {
-                    let typ = self.type_check_expr(context, *arg.clone())?;
+                    let typ = self.type_check_expr(context, *arg.clone(), undef_types_vec)?;
                     arg_types.push(typ.unwrap());
                 }
                 let symbol_name = format!("fn.{}", name);
@@ -1225,10 +1238,11 @@ impl SemanticAnalyzer {
                     None => {
                         // this can happen if the function is not yet defined
                         // in fact, the type of a FnCall should be the return type of the function
-                        self.undefined_types
-                            .entry(context.current_scope().unwrap().name.clone())
-                            .or_insert(Vec::new())
-                            .push((symbol_name.clone(), Type::Custom { name: "".to_string() }));
+                        undef_types_vec.push((
+                            context.current_scope().unwrap().name.clone(),
+                            symbol_name.clone(),
+                            Type::Custom { name: "".to_string() },
+                        ));
                         Ok(Some(Type::Unknown))
                     }
                 }
@@ -1236,7 +1250,7 @@ impl SemanticAnalyzer {
             Expr::ArrayInitialization { elements } => {
                 let mut elem_types: Vec<Type> = Vec::new();
                 for elem in elements.clone() {
-                    let typ = self.type_check_expr(context, *elem.clone())?;
+                    let typ = self.type_check_expr(context, *elem.clone(), undef_types_vec)?;
                     elem_types.push(typ.unwrap());
                 }
                 if elem_types.len() == 0 {
@@ -1257,34 +1271,36 @@ impl SemanticAnalyzer {
                     size: elements.len(),
                 }))
             }
-            Expr::ArrayAccess { name, index } => match self.type_check_expr(context, *index.clone())? {
-                Some(index_typ) => {
-                    if index_typ != Type::Int {
-                        return Err(format!("Expected type int, got {}", index_typ));
-                    }
+            Expr::ArrayAccess { name, index } => {
+                match self.type_check_expr(context, *index.clone(), undef_types_vec)? {
+                    Some(index_typ) => {
+                        if index_typ != Type::Int {
+                            return Err(format!("Expected type int, got {}", index_typ));
+                        }
 
-                    let symbol_name = format!("let.{}", name);
-                    match context.lookup(&symbol_name) {
-                        Some(array_symbol) => {
-                            let typ = array_symbol
-                                .type_()
-                                .expect(format!("variable `{}` type not found", name).as_str());
+                        let symbol_name = format!("let.{}", name);
+                        match context.lookup(&symbol_name) {
+                            Some(array_symbol) => {
+                                let typ = array_symbol
+                                    .type_()
+                                    .expect(format!("variable `{}` type not found", name).as_str());
 
-                            if typ.variant_eq(&Type::Array {
-                                type_: Box::new(Type::Unknown),
-                                size: 0,
-                            }) {
-                                return Ok(typ.get_array_inner_type());
+                                if typ.variant_eq(&Type::Array {
+                                    type_: Box::new(Type::Unknown),
+                                    size: 0,
+                                }) {
+                                    return Ok(typ.get_array_inner_type());
+                                }
+                                Err(format!("expected array type, got {}", typ))
                             }
-                            Err(format!("expected array type, got {}", typ))
-                        }
-                        None => {
-                            return Err(format!("Variable {} not found", name));
+                            None => {
+                                return Err(format!("Variable {} not found", name));
+                            }
                         }
                     }
+                    None => return Err("Index type not found".to_string()),
                 }
-                None => return Err("Index type not found".to_string()),
-            },
+            }
             Expr::StructAccess { name, field } => {
                 let symbol_name = format!("let.{}", name);
                 match context.lookup(&symbol_name) {
@@ -1303,13 +1319,14 @@ impl SemanticAnalyzer {
                 match context.lookup(&symbol_name) {
                     Some(_) => {
                         for (member_name, member) in members {
-                            match self.type_check_expr(context, *member.clone())? {
+                            match self.type_check_expr(context, *member.clone(), undef_types_vec)? {
                                 Some(typ) => {
                                     if typ.variant_eq(&Type::Custom { name: "".to_string() }) {
-                                        self.undefined_types
-                                            .entry(context.current_scope().unwrap().name.clone())
-                                            .or_insert(Vec::new())
-                                            .push((member_name.to_string(), typ.clone()));
+                                        undef_types_vec.push((
+                                            context.current_scope().unwrap().name.clone(),
+                                            member_name.to_string(),
+                                            typ.clone(),
+                                        ));
                                     }
                                 }
                                 None => {
@@ -1327,11 +1344,35 @@ impl SemanticAnalyzer {
             Expr::StructMember { type_, .. } => {
                 return Ok(Some(type_));
             }
-            Expr::Assignment { type_, .. } => {
+            Expr::Assignment { type_, name, .. } => {
+                if type_.is_equal(&Type::Void) {
+                    return Err(format!("cannot assign variable `{}` to void", name));
+                }
                 return Ok(Some(*type_));
             }
             _ => Ok(None),
         }
+    }
+
+    fn forward_typecheck_pass(&mut self) -> Result<(), Vec<String>> {
+        let mut result: Vec<String> = Vec::new();
+
+        self.undefined_types.iter().for_each(|(scope_name, types)| {
+            for (symbol_table_name, symbol_name, typ) in types {
+                let symbol = self.global_symbol_table.lookup_symbol(&symbol_name);
+                match symbol {
+                    Some(_) => {
+                        // update the type of the symbol
+                        // self.global_symbol_table.update_symbol_type(&symbol_name, typ.clone());
+                    }
+                    None => {
+                        result.push(format!("error: symbol `{}` undefined", symbol_name));
+                    }
+                }
+            }
+        });
+
+        Ok(())
     }
 }
 
@@ -1347,7 +1388,7 @@ mod tests {
         let mut analyzer = SemanticAnalyzer::new();
         let context = Context::new();
         let expr = Expr::IntegerLiteral(42);
-        let result = analyzer.type_check_expr(&context, expr);
+        let result = analyzer.type_check_expr(&context, expr, &mut Vec::new());
         assert_eq!(result, Ok(Some(Type::Int)));
     }
 
@@ -1356,7 +1397,7 @@ mod tests {
         let mut analyzer = SemanticAnalyzer::new();
         let context = Context::new();
         let expr = Expr::FloatLiteral(3.14);
-        let result = analyzer.type_check_expr(&context, expr);
+        let result = analyzer.type_check_expr(&context, expr, &mut Vec::new());
         assert_eq!(result, Ok(Some(Type::Float)));
     }
 
@@ -1365,7 +1406,7 @@ mod tests {
         let mut analyzer = SemanticAnalyzer::new();
         let context = Context::new();
         let expr = Expr::StringLiteral("hello".to_string());
-        let result = analyzer.type_check_expr(&context, expr);
+        let result = analyzer.type_check_expr(&context, expr, &mut Vec::new());
         assert_eq!(result, Ok(Some(Type::String)));
     }
 
@@ -1374,7 +1415,7 @@ mod tests {
         let mut analyzer = SemanticAnalyzer::new();
         let context = Context::new();
         let expr = Expr::BoolLiteral(true);
-        let result = analyzer.type_check_expr(&context, expr);
+        let result = analyzer.type_check_expr(&context, expr, &mut Vec::new());
         assert_eq!(result, Ok(Some(Type::Bool)));
     }
 
@@ -1383,7 +1424,7 @@ mod tests {
         let mut analyzer = SemanticAnalyzer::new();
         let context = Context::new();
         let expr = Expr::CharLiteral('a');
-        let result = analyzer.type_check_expr(&context, expr);
+        let result = analyzer.type_check_expr(&context, expr, &mut Vec::new());
         assert_eq!(result, Ok(Some(Type::Char)));
     }
 
@@ -1392,7 +1433,7 @@ mod tests {
         let mut analyzer = SemanticAnalyzer::new();
         let context = Context::new();
         let expr = Expr::Nil;
-        let result = analyzer.type_check_expr(&context, expr);
+        let result = analyzer.type_check_expr(&context, expr, &mut Vec::new());
         assert_eq!(result, Ok(Some(Type::Optional(Box::new(Type::Nil)))));
     }
 
@@ -1410,7 +1451,7 @@ mod tests {
             },
         );
         let expr = Expr::Variable("x".to_string());
-        let result = analyzer.type_check_expr(&context, expr);
+        let result = analyzer.type_check_expr(&context, expr, &mut Vec::new());
         assert_eq!(result, Ok(Some(Type::Int)));
         context.exit_scope();
     }
@@ -1423,7 +1464,7 @@ mod tests {
             op: TokenKind::Minus,
             expr: Box::new(Expr::IntegerLiteral(10)),
         };
-        let result = analyzer.type_check_expr(&context, expr);
+        let result = analyzer.type_check_expr(&context, expr, &mut Vec::new());
         assert_eq!(result, Ok(Some(Type::Int)));
     }
 
@@ -1436,7 +1477,7 @@ mod tests {
             lhs: Box::new(Expr::IntegerLiteral(5)),
             rhs: Box::new(Expr::IntegerLiteral(3)),
         };
-        let result = analyzer.type_check_expr(&context, expr);
+        let result = analyzer.type_check_expr(&context, expr, &mut Vec::new());
         assert_eq!(result, Ok(Some(Type::Int)));
     }
 
@@ -1457,7 +1498,7 @@ mod tests {
             op: TokenKind::Increment,
             expr: Box::new(Expr::Variable("x".to_string())),
         };
-        let result = analyzer.type_check_expr(&context, expr);
+        let result = analyzer.type_check_expr(&context, expr, &mut Vec::new());
         assert_eq!(result, Ok(Some(Type::Int)));
         context.exit_scope();
     }
@@ -1491,7 +1532,7 @@ mod tests {
             name: "add".to_string(),
             args: vec![Box::new(Expr::IntegerLiteral(5)), Box::new(Expr::IntegerLiteral(3))],
         };
-        let result = analyzer.type_check_expr(&context, expr);
+        let result = analyzer.type_check_expr(&context, expr, &mut Vec::new());
         assert_eq!(result, Ok(Some(Type::Void)));
 
         context.exit_scope();
@@ -1510,7 +1551,7 @@ mod tests {
                 Box::new(Expr::IntegerLiteral(3)),
             ],
         };
-        let result = analyzer.type_check_expr(&context, expr);
+        let result = analyzer.type_check_expr(&context, expr, &mut Vec::new());
         assert_eq!(
             result,
             Ok(Some(Type::Array {
@@ -1543,7 +1584,7 @@ mod tests {
             name: "arr".to_string(),
             index: Box::new(Expr::IntegerLiteral(1)),
         };
-        let result = analyzer.type_check_expr(&context, expr);
+        let result = analyzer.type_check_expr(&context, expr, &mut Vec::new());
         assert_eq!(result, Ok(Some(Type::Int)));
 
         context.exit_scope();
@@ -1572,7 +1613,7 @@ mod tests {
                 type_: Type::String,
             }),
         };
-        let result = analyzer.type_check_expr(&context, expr);
+        let result = analyzer.type_check_expr(&context, expr, &mut Vec::new());
         assert_eq!(result, Ok(Some(Type::String)));
         context.exit_scope();
     }
@@ -1600,7 +1641,7 @@ mod tests {
                 ("age".to_string(), Box::new(Expr::IntegerLiteral(30))),
             ],
         };
-        let result = analyzer.type_check_expr(&context, expr);
+        let result = analyzer.type_check_expr(&context, expr, &mut Vec::new());
         assert_eq!(
             result,
             Ok(Some(Type::Struct {
@@ -1620,7 +1661,7 @@ mod tests {
             type_: Type::Int,
             name: "age".to_string(),
         };
-        let result = analyzer.type_check_expr(&context, expr);
+        let result = analyzer.type_check_expr(&context, expr, &mut Vec::new());
         assert_eq!(result, Ok(Some(Type::Int)));
         context.exit_scope();
     }
@@ -1635,7 +1676,7 @@ mod tests {
             name: "x".to_string(),
             value: Box::new(Expr::IntegerLiteral(10)),
         };
-        let result = analyzer.type_check_expr(&context, expr);
+        let result = analyzer.type_check_expr(&context, expr, &mut Vec::new());
         assert_eq!(result, Ok(Some(Type::Int)));
         context.exit_scope();
     }

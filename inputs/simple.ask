@@ -29,10 +29,16 @@ struct Fantasy {
     pub color int
 }
 
+fn banana() {
+    let x = 1;
+}
+
 fn later(xk: int) -> int {
     let unused = "hello later";
     let fan = Fantasy{name: "davide", color: 42};
     let result = fancy(xk, fan.color);
+
+    // let b = banana();
 
     return -1;
 }

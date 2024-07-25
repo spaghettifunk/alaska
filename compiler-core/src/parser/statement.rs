@@ -86,10 +86,10 @@ where
         self.consume(T![')']);
 
         // return type
-        let mut return_type: Option<Type> = None;
+        let mut return_type = Type::Void;
         if self.at(T![->]) {
             self.consume(T![->]);
-            return_type = Some(self.parse_type(&None, false, false));
+            return_type = self.parse_type(&None, false, false);
         }
 
         Ok(ast::Stmt::InterfaceFunctionSignature {
@@ -158,11 +158,11 @@ where
         self.consume(T![')']);
 
         // parse the return type if any
-        let mut return_types: Option<Type> = None;
+        let mut return_type = Type::Void;
         if self.at(T![->]) {
             self.consume(T![->]);
             let typ = self.parse_type(&None, false, false);
-            return_types = Some(typ);
+            return_type = typ;
         }
 
         assert!(self.at(T!['{']), "Expected a block after function header");
@@ -185,7 +185,7 @@ where
             generics,
             parameters: if parameters.len() > 0 { Some(parameters) } else { None },
             body,
-            return_type: return_types,
+            return_type,
         })
     }
 
@@ -1010,7 +1010,10 @@ mod tests {
     use crate::{
         hashmap,
         lexer::{Lexer, TokenKind},
-        parser::{ast, Parser},
+        parser::{
+            ast::{self, Type},
+            Parser,
+        },
         T,
     };
     use unindent::unindent;
@@ -1397,7 +1400,7 @@ mod tests {
                 );
 
                 assert_eq!(body.len(), 3);
-                assert_eq!(return_type, Some(ast::Type::String));
+                assert_eq!(return_type, ast::Type::String);
             }
             _ => unreachable!(),
         };
@@ -1529,7 +1532,7 @@ mod tests {
                             assert_eq!(generics, None);
                             assert_eq!(parameters.clone().unwrap().len(), 2);
                             assert_eq!(body.len(), 2);
-                            assert_eq!(return_type, None);
+                            assert_eq!(return_type, Type::Void);
                         }
                         ast::Stmt::StructDeclaration {
                             is_public,
@@ -1677,13 +1680,13 @@ mod tests {
                         name: "bar".to_string(),
                         generics: None,
                         parameters: Some(hashmap!["x".to_string() => ast::Type::Int]),
-                        return_type: Some(ast::Type::Int)
+                        return_type: ast::Type::Int
                     }),
                     Box::new(ast::Stmt::InterfaceFunctionSignature {
                         name: "baz".to_string(),
                         generics: None,
                         parameters: Some(hashmap!["y".to_string() => ast::Type::String]),
-                        return_type: Some(ast::Type::String)
+                        return_type: ast::Type::String
                     })
                 ]
             }
@@ -1780,7 +1783,7 @@ mod tests {
                                 })
                             })
                         ],
-                        return_type: None
+                        return_type: Type::Void
                     })
                 ]
             }

@@ -40,7 +40,7 @@ pub enum Symbol {
     InterfaceMethod {
         name: String,
         parameters: Option<Vec<Symbol>>,
-        return_type: Option<Type>,
+        return_type: Type,
     },
     Block(Option<Vec<Symbol>>),
     Enum {
@@ -58,7 +58,7 @@ pub enum Symbol {
         is_public: bool,
         name: String,
         parameters: Option<Vec<Symbol>>, // Vector of Symbol::FunctionParameter
-        return_type: Option<Type>,
+        return_type: Type,
         body: Option<Vec<Symbol>>,
     },
     FunctionCall {
@@ -160,8 +160,8 @@ impl SymbolInfo for Symbol {
 
     fn return_type(&self) -> Option<Type> {
         match self {
-            Symbol::InterfaceMethod { return_type, .. } => return_type.clone(),
-            Symbol::Function { return_type, .. } => return_type.clone(),
+            Symbol::InterfaceMethod { return_type, .. } => Some(return_type.clone()),
+            Symbol::Function { return_type, .. } => Some(return_type.clone()),
             _ => None,
         }
     }
@@ -218,9 +218,7 @@ impl fmt::Display for Symbol {
                     }
                 }
                 write!(f, "], return_type: [")?;
-                if let Some(return_type) = return_type {
-                    write!(f, "{}, ", return_type)?;
-                }
+                write!(f, "{}, ", return_type)?;
                 write!(f, "])")
             }
             Symbol::Enum { is_public, name, .. } => {
@@ -243,9 +241,7 @@ impl fmt::Display for Symbol {
                     }
                 }
                 write!(f, "], return_type: [")?;
-                if let Some(return_type) = return_type {
-                    write!(f, "{}, ", return_type)?;
-                }
+                write!(f, "{}, ", return_type)?;
                 write!(f, "])\n")
             }
             Symbol::RangeLoop { iterator, iterable, .. } => {
@@ -425,6 +421,10 @@ impl GlobalSymbolTable {
 
     pub fn add_package_context(&mut self, name: &str, context: Context) {
         self.packages.insert(name.to_string(), context);
+    }
+
+    pub fn get_context_by_name(&self, name: &str) -> Option<&Context> {
+        self.packages.get(name)
     }
 }
 
